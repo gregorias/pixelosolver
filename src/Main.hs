@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
--- Fix solver crashing on wronly defined game
 -- Make definition of constants explicit, especially the interDigitSpace.
 -- Stripe length should be calculated more smartly, or by cutting it.
 --Fix crashses when taking screenshot without board on it.
@@ -12,17 +11,17 @@
 module Main where
 import Control.Applicative
 import Control.Concurrent
-import Control.Monad
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
 import Data.Array
+import Data.Array.Extra
 import Data.Array.IArray(amap)
 import Data.Array.MArray
 import Data.List
 import Data.Maybe
 import Data.Word
+import Game.Nonogram
 import Graphics.UI.Gtk
-import Graphics.UI.Gtk.Gdk.Screen
-import System.Environment
-
 
 import qualified Graphics.X11.Xlib as X
 import Graphics.X11.XTest
@@ -76,27 +75,13 @@ type BWMap = Array (Int, Int) BW
 colorMapToBWMap :: ColorMap -> BWMap
 colorMapToBWMap = amap (\c -> if c == black then Black else White)
 
-getRow :: Int -> Map e -> Row e
-getRow row map = ixmap (0, width) (\i -> (row, i)) map
-  where width = snd . snd . bounds $ map
-
-setRow :: Int -> Row e -> Map e -> Map e
-setRow rowId row inputMap =
-  inputMap // (map (\(x, value) -> ((rowId, x), value)) (assocs row))
-
-getColumn :: Int -> Map e -> Row e
-getColumn column map = ixmap (0, height) (\i -> (i, column)) map
-  where height = fst . snd . bounds $ map
-
-setColumn colId column inputMap =
-  inputMap // (map (\(y, value) -> ((y, colId), value)) (assocs column))
-
 submap :: ((Int, Int), (Int, Int)) -> Map e -> Map e
 submap ((begY, begX), (endY, endX)) =
   ixmap ((0, 0), (height, width)) (\(y, x) -> (y + begY, x + begX))
   where
     (height, width) = (endY - begY, endX - begX)
 
+prettyPrintBW :: BW -> Char
 prettyPrintBW Black = '#'
 prettyPrintBW White = '_'
 
@@ -113,24 +98,27 @@ prettyPrintBWMap bwMap =
 -- Map recognition
 
 -- | distance tolerance between board's white tile
+distanceTolerance :: Int
 distanceTolerance = 6
+
+minimalTileLength :: Int
 minimalTileLength = 15
 
 groupNeighbours :: (a -> a -> Bool) -> [a] -> [[a]]
 groupNeighbours check as = groupNeighbours' [] check as
   where
     groupNeighbours' :: [a] -> (a -> a -> Bool) -> [a] -> [[a]]
-    groupNeighbours' [] check [] = []
-    groupNeighbours' acc check [] = [reverse acc]
-    groupNeighbours' [] check (a:as) = groupNeighbours' [a] check as
-    groupNeighbours' (last:acc) check (a:as) = 
-        if check last a
-        then groupNeighbours' (a:(last:acc)) check as
-        else reverse (last:acc) : (groupNeighbours' [] check (a:as))
+    groupNeighbours' [] _ [] = []
+    groupNeighbours' acc _ [] = [reverse acc]
+    groupNeighbours' [] checkFun (x : xs) = groupNeighbours' [x] checkFun xs
+    groupNeighbours' (accHead : acc) checkFun (x : xs) = 
+        if checkFun accHead x
+        then groupNeighbours' (x : (accHead : acc)) checkFun xs
+        else reverse (accHead : acc) : (groupNeighbours' [] checkFun (x : xs))
 
 neighbourGroupToRanges :: [[(Int, a)]] -> [(Int, Int)]
 neighbourGroupToRanges [] = []
-neighbourGroupToRanges (ns:nss) = (fst . head $ ns, fst . last $ ns) :
+neighbourGroupToRanges (ns : nss) = (fst . head $ ns, fst . last $ ns) :
     (neighbourGroupToRanges nss)
 
 groupSimilarRanges :: Int -> [(Int, Int)] -> [[(Int, Int)]]
@@ -163,7 +151,7 @@ pixeloBoardGetFirstColX = fst . head . pixeloBoardGetColumns
 findWhitePatches :: [(Int, RGB)] -> [(Int, Int)]
 findWhitePatches row = 
   let
-    whites = filter (\(i, c) -> c == white) row
+    whites = filter (\(_, c) -> c == white) row
     neighbourRanges = neighbourGroupToRanges $ groupNeighbours
       (\(i0, _) (i1, _) -> i1 - i0 == 1)
       whites
@@ -193,13 +181,14 @@ findPixeloBoard colorMap = do
   boardRow <- findPixeloBoardRow columns
   return $ PixeloBoard boardRow boardColumn
 
-type ColSpecStripe = BWMap
-type RowSpecStripe = BWMap
+type ColHintStripe = BWMap
+type RowHintStripe = BWMap
 
+stripeLengthMultiplier :: Int
 stripeLengthMultiplier = 6
 
-getColSpecStripes :: BWMap -> PixeloBoard -> [ColSpecStripe]
-getColSpecStripes bwMap board =
+getColHintStripes :: BWMap -> PixeloBoard -> [ColHintStripe]
+getColHintStripes bwMap board =
   map (\(cB, cE) ->
       submap (((firstRowY - stripeLength), cB), (firstRowY, cE)) bwMap)
     colDims
@@ -208,8 +197,8 @@ getColSpecStripes bwMap board =
     stripeLength = stripeLengthMultiplier * (pixeloBoardGetTileWidth board)
     colDims = pixeloBoardGetColumns board
 
-getRowSpecStripes :: BWMap -> PixeloBoard -> [RowSpecStripe]
-getRowSpecStripes bwMap board =
+getRowHintStripes :: BWMap -> PixeloBoard -> [RowHintStripe]
+getRowHintStripes bwMap board =
   map (\(rB, rE) ->
       submap ((rB, (firstColX - stripeLength)), (rE, firstColX)) bwMap)
     rowDims
@@ -224,6 +213,7 @@ splitBWMapByColumn = splitBWMapByColumn' 0 0
 splitBWMapByRow :: BWMap -> [BWMap]
 splitBWMapByRow = splitBWMapByRow' 0 0
 
+splitBWMapByColumn' :: Int -> Int -> BWMap -> [BWMap]
 splitBWMapByColumn' first curCol bwMap = 
   if curCol < width
   then
@@ -241,7 +231,8 @@ splitBWMapByColumn' first curCol bwMap =
   where
     (height, width) = snd . bounds $ bwMap
 
-splitBWMapByRow' first curRow bwMap = 
+splitBWMapByRow' :: Int -> Int -> BWMap -> [BWMap]
+splitBWMapByRow' first curRow bwMap =
   if curRow < height
   then
     if any (== Black) (elems . getRow curRow $ bwMap)
@@ -262,7 +253,7 @@ findFirst :: (a -> Bool) -> [a] -> Maybe a
 findFirst  predicate as = safeHead . filter predicate $ as
 
 findFirstWithTail :: (a -> Bool) -> [a] -> (Maybe a, [a])
-findFirstWithTail predicate [] = (Nothing, [])
+findFirstWithTail _ [] = (Nothing, [])
 findFirstWithTail predicate (a : as) =
   if predicate a
   then (Just a, as)
@@ -275,17 +266,17 @@ findLast predicate as =
     _ ->
       case second of
         Nothing -> first
-        Just a -> findLast predicate (a : tail')
+        Just a -> findLast predicate (a : foundTail')
       
   where
-    (first, tail) = findFirstWithTail predicate as
-    (second, tail') = findFirstWithTail predicate tail
+    (first, foundTail) = findFirstWithTail predicate as
+    (second, foundTail') = findFirstWithTail predicate foundTail
   
-splitRowSpecStripe :: Int -> BWMap -> [BWMap]
-splitRowSpecStripe interDigitLeave bwMap = 
+splitRowHintStripe :: Int -> BWMap -> [BWMap]
+splitRowHintStripe interDigitLeave bwMap = 
   case maybeFirstCol of
     Just firstCol -> submap ((0, firstCol), (h, lastCol)) bwMap :
-      (splitRowSpecStripe
+      (splitRowHintStripe
         interDigitLeave
         (submap ((0, lastCol + 1), (h, w)) bwMap))
     Nothing -> []
@@ -293,9 +284,8 @@ splitRowSpecStripe interDigitLeave bwMap =
     (h, w) = snd . bounds $ bwMap
     colsWithIdx = map (\i -> (i, getColumn i bwMap)) [0..w]
     maybeFirstCol = fmap fst 
-      . findFirst (\(i, col) -> any (== Black) (elems col))
+      . findFirst (\(_, col) -> any (== Black) (elems col))
       $ colsWithIdx
-    Just firstCol = maybeFirstCol
     findLastCol :: [(Int, Row BW)] -> Int
     findLastCol cols = 
       if hasHeadAnyBlackPixel
@@ -320,16 +310,16 @@ trimBWMap bwMap =
       rowsWithIdx = map (\i -> (i, getRow i bwMap)) [0..h]
       colsWithIdx = map (\i -> (i, getColumn i bwMap)) [0..w]
       firstRow = fmap fst 
-        . findFirst (\(i, c) -> any (== Black) (elems c))
+        . findFirst (\(_, c) -> any (== Black) (elems c))
         $ rowsWithIdx
       lastRow = fmap fst 
-        . findLast (\(i, c) -> any (== Black) (elems c))
+        . findLast (\(_, c) -> any (== Black) (elems c))
         $ rowsWithIdx
       firstCol = fmap fst 
-        . findFirst (\(i, c) -> any (== Black) (elems c))
+        . findFirst (\(_, c) -> any (== Black) (elems c))
         $ colsWithIdx
       lastCol = fmap fst 
-        . findLast (\(i, c) -> any (== Black) (elems c))
+        . findLast (\(_, c) -> any (== Black) (elems c))
         $ colsWithIdx
       maybeTrimmed = do 
         fR <- firstRow
@@ -338,13 +328,13 @@ trimBWMap bwMap =
         lC <- lastCol
         return $ submap ((fR, fC), (lR, lC)) bwMap
 
-getColSpecPics ::  BWMap -> PixeloBoard -> [[BWMap]]
-getColSpecPics bwMap board = 
-  map (map trimBWMap . splitBWMapByRow) $ getColSpecStripes bwMap board
+getColHintPics ::  BWMap -> PixeloBoard -> [[BWMap]]
+getColHintPics bwMap board = 
+  map (map trimBWMap . splitBWMapByRow) $ getColHintStripes bwMap board
 
-getRowSpecPics ::  BWMap -> PixeloBoard -> [[BWMap]]
-getRowSpecPics bwMap board = 
-  map (map trimBWMap . splitRowSpecStripe 6) $ getRowSpecStripes bwMap board
+getRowHintPics ::  BWMap -> PixeloBoard -> [[BWMap]]
+getRowHintPics bwMap board = 
+  map (map trimBWMap . splitRowHintStripe 6) $ getRowHintStripes bwMap board
 
 -- digit OCR
 getBlackGroups :: Row BW -> [(Int, Int)]
@@ -783,8 +773,8 @@ recognizeNumber bwMap =
 
 -- Mapper from ColorMap to PixeloGame solver
 --
-specPicToSpec :: BWMap -> IO Int
-specPicToSpec bwMap = 
+specPicToHint :: BWMap -> IO Int
+specPicToHint bwMap = 
   case recognizeNumber bwMap of
     Just num -> return num
     _ -> do
@@ -793,163 +783,26 @@ specPicToSpec bwMap =
       return $ read num
 
 
-specPicsToSpec :: [BWMap] -> IO [Int]
-specPicsToSpec [] = return []
-specPicsToSpec (p : ps) = do
-  spec <- specPicToSpec p
-  restOfSpec <- specPicsToSpec ps
-  return (spec : restOfSpec)
+specPicsToHint :: [BWMap] -> IO [Int]
+specPicsToHint [] = return []
+specPicsToHint (p : ps) = do
+  spec <- specPicToHint p
+  restOfHint <- specPicsToHint ps
+  return (spec : restOfHint)
 
 -- TODO Blog Above we have a IO dependence that pipes/conduit solves
 
 colorMapToPixeloGame :: ColorMap -> PixeloBoard -> IO PixeloGame
 colorMapToPixeloGame colorMap pixeloBoard =
   do
-    rowSpecs <- sequence (map specPicsToSpec rowSpecPics :: [IO [Int]]) :: IO [[Int]]
-    colSpecs <- sequence (map specPicsToSpec colSpecPics)
-    return $ PixeloGame emptyGameBoard rowSpecs colSpecs 
+    rowHints <- sequence (map specPicsToHint rowHintPics :: [IO [Int]]) :: IO [[Int]]
+    colHints <- sequence (map specPicsToHint colHintPics)
+    return $ PixeloGame (emptyGameBoard height width) rowHints colHints 
   where
     bwMap = colorMapToBWMap colorMap
-    colSpecPics = getColSpecPics bwMap pixeloBoard
-    rowSpecPics = getRowSpecPics bwMap pixeloBoard
-    (height, width) = (length rowSpecPics, length colSpecPics)
-    emptyGameBoard = listArray ((0, 0), (height - 1, width - 1))
-      (take (height * width) $ repeat Unknown)
-
--- Pixelo game solver
-
-data PixeloTile = Done PixeloTileFill | Unknown deriving (Eq, Show)
-data PixeloTileFill = Empty | Full deriving (Eq, Show)
-
-data PixeloGame = PixeloGame (Array (Int, Int) PixeloTile) [[Int]] [[Int]]
-  deriving (Eq, Show)
-
-pixeloGameGetBoard (PixeloGame board _ _) = board
-pixeloGameGetRowSpecs (PixeloGame _ rowSpecs _) = rowSpecs
-pixeloGameGetColSpecs (PixeloGame _ _ colSpecs) = colSpecs
-
-prettyPrintTile (Done Empty) = '_'
-prettyPrintTile (Done Full) = '#'
-prettyPrintTile Unknown = '?'
-
-prettyPrintBoard :: Array (Int, Int) PixeloTile -> String
-prettyPrintBoard board = concat 
-  $ map (\i -> (map prettyPrintTile $ elems (getRow i board)) ++ ['\n']) [0..height]
-  where
-    height = snd . snd . bounds $ board 
-
-generateSolutions :: [Int] -> [PixeloTile] -> [[PixeloTileFill]]
-generateSolutions ss cs = generateSolutions' False 0 ss cs
-
---generateSolutions' isStreak curStreak restOfSpec constraints
-generateSolutions' :: Bool -> Int -> [Int] -> [PixeloTile] -> [[PixeloTileFill]]
-generateSolutions' False _ [] [] = [[]]
-generateSolutions' False _ [] (c : cs) =
-  case c of
-    Done Full -> []
-    _ -> do 
-      sol <- generateSolutions' False 0 [] cs
-      return $ Empty : sol
-generateSolutions' False _ (s : ss) [] = []
-generateSolutions' False _ (s : ss) (c : cs) = 
-  case c of
-    Done Full -> generateSolutions' True s ss (c : cs)
-    Done Empty -> do
-      sol <- generateSolutions' False 0 (s : ss) (cs)
-      return $ Empty : sol
-    Unknown -> 
-      (do
-        restOfSol <- generateSolutions' False 0 (s : ss) (cs)
-        return $ Empty : restOfSol)
-      ++ (generateSolutions' True s ss (c : cs))
-generateSolutions' True 0 [] [] = [[]]
-generateSolutions' True _ _ [] = []
-generateSolutions' True 0 ss (c : cs) = 
-  case c of
-    Done Full -> []
-    _ -> do
-      sol <- generateSolutions' False 0 ss cs
-      return $ Empty : sol
-generateSolutions' True s ss (c : cs) =
-  case c of
-    Done Empty -> []
-    _ -> do
-      sol <- generateSolutions' True (s - 1) ss cs
-      return $ Full : sol
-
-mergeSolutions :: [[PixeloTileFill]] -> [PixeloTile]
-mergeSolutions [] = undefined
-mergeSolutions (s : ss) = mergeSolutions' (map Done s) ss
-
-mergeSolutions' :: [PixeloTile] -> [[PixeloTileFill]] -> [PixeloTile]
-mergeSolutions' constraints [] = constraints
-mergeSolutions' constraints (s : ss) = 
-  if all (== Unknown) constraints
-  then constraints
-  else mergeSolutions' (mergeSolution constraints s) ss
-
-mergeSolution :: [PixeloTile] -> [PixeloTileFill] -> [PixeloTile]
-mergeSolution [] [] = []
-mergeSolution (Unknown : cs) (s : ss) = Unknown : (mergeSolution cs ss)
-mergeSolution (Done a : cs) (s : ss) =
-  if a == s
-  then Done a : (mergeSolution cs ss)
-  else Unknown : (mergeSolution cs ss)
-mergeSolution _ _ = undefined
-
-stepSolvePixeloGameRow :: Int -> PixeloGame -> PixeloGame
-stepSolvePixeloGameRow rowId game =   
-  PixeloGame
-    newBoard 
-    (pixeloGameGetRowSpecs game)
-    (pixeloGameGetColSpecs game)
-  where
-    rowSpec = pixeloGameGetRowSpecs game !! rowId
-    board = pixeloGameGetBoard game
-    rowList = elems $ getRow rowId board
-    newRowList = mergeSolutions $ generateSolutions rowSpec rowList
-    newRow = listArray (0, length rowList - 1)  newRowList
-    newBoard = setRow rowId newRow board
-
-stepSolvePixeloGameCol :: Int -> PixeloGame -> PixeloGame
-stepSolvePixeloGameCol colId game =   
-  PixeloGame
-    newBoard 
-    (pixeloGameGetRowSpecs game)
-    (pixeloGameGetColSpecs game)
-  where
-    colSpec = pixeloGameGetColSpecs game !! colId
-    board = pixeloGameGetBoard game
-    colList = elems $ getColumn colId board
-    newColList = mergeSolutions $ generateSolutions colSpec colList
-    newCol = listArray (0, length colList - 1)  newColList
-    newBoard = setColumn colId newCol board
-
-stepSolvePixeloGameRows :: PixeloGame -> PixeloGame
-stepSolvePixeloGameRows game = 
-  foldr1 (.) funs game
-  where
-    height = fst . snd . bounds $ pixeloGameGetBoard game
-    funs = map (stepSolvePixeloGameRow) [0..height]
-
-stepSolvePixeloGameCols :: PixeloGame -> PixeloGame
-stepSolvePixeloGameCols game =
-  foldr1 (.) funs game
-  where
-    width = snd . snd . bounds $ pixeloGameGetBoard game
-    funs = map (stepSolvePixeloGameCol) [0..width]
-
-stepSolvePixeloGame :: PixeloGame -> PixeloGame
-stepSolvePixeloGame = stepSolvePixeloGameCols . stepSolvePixeloGameRows
-
-solvePixeloGame :: PixeloGame -> PixeloGame
-solvePixeloGame pixeloGame =   
-  let 
-    iteratedSols = iterate stepSolvePixeloGame pixeloGame
-    pairedSkewedSols = zip iteratedSols (tail iteratedSols)
-    terminatingSols = takeWhile (\(sol0, sol1) -> sol0 /= sol1) pairedSkewedSols
-  in
-    snd . last $ terminatingSols
+    colHintPics = getColHintPics bwMap pixeloBoard
+    rowHintPics = getRowHintPics bwMap pixeloBoard
+    (height, width) = (length rowHintPics, length colHintPics)
 
 -- Mouse clicks
 
@@ -957,7 +810,7 @@ setMousePosition :: Int -> Int -> IO ()
 setMousePosition x y = do
   dpy <- X.openDisplay ""
   let dflt = X.defaultScreen dpy
-  rootw <- X.rootWindow dpy dflt
+  _ <- X.rootWindow dpy dflt
   fakeMotion dpy dflt x y
   X.closeDisplay dpy
 
@@ -1013,26 +866,37 @@ loadPixbuf = do
   origin <- drawWindowGetOrigin window
   pixbufGetFromDrawable window ((uncurry . uncurry Rectangle) origin size)
 
+takePxBuf :: IO Pixbuf
 takePxBuf = do
   threadDelay 1000000
   Just pxbuf <- loadPixbuf
   return pxbuf
 
+solvePxBuf :: Pixbuf -> MaybeT IO (PixeloBoard, PixeloGame)
 solvePxBuf pxBuf = do
-  colorMap <- pixbufToColorMap pxBuf
+  colorMap <- lift $ pixbufToColorMap pxBuf
   let Just pixeloBoard = findPixeloBoard colorMap
-  pixeloGame <- colorMapToPixeloGame colorMap pixeloBoard
-  let solvedGame = solvePixeloGame pixeloGame
-  putStrLn . prettyPrintBoard . pixeloGameGetBoard $ solvedGame
-  return (pixeloBoard, solvedGame)
+  pixeloGame <- lift $ colorMapToPixeloGame colorMap pixeloBoard
+  let maybeSolvedGame = solvePixeloGame pixeloGame
+  case maybeSolvedGame of
+    Nothing ->  do
+      lift $ do
+        putStrLn "Game is unsolvable. The board is: "
+        putStrLn $ show pixeloGame
+      fail ""
+    Just solvedGame -> lift $ do
+      putStrLn . prettyPrintBoard . pixeloGameGetBoard $ solvedGame
+      return (pixeloBoard, solvedGame)
 
-
+main :: IO ()
 main = WX.start gui
 
-run = takePxBuf >>= solvePxBuf >>= (uncurry playGame)
+run :: MaybeT IO ()
+run = lift takePxBuf >>= solvePxBuf >>= (lift . uncurry playGame)
 
+gui :: IO ()
 gui = do
   f <- WX.frame [WX.text WX.:= "Pixelo Solver"]
-  ok <- WX.button f [WX.text WX.:= "Solve it",
-    WX.on WX.command WX.:= run]
+  _ <- WX.button f [WX.text WX.:= "Solve it",
+    WX.on WX.command WX.:= (runMaybeT run >> return ())]
   return ()
