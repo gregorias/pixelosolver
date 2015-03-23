@@ -14,11 +14,9 @@ module Main(
   module Data.Graphics,
   module System.Utils,
   initGUI
-
   ) where
 import Control.Applicative
 import Control.Concurrent
-import Control.Exception.Base
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Data.Array
@@ -776,24 +774,8 @@ playGame pxBoard solvedGame =
 
 -- Pixbuf and Gtk functions
 
-solvePxBuf :: Pixbuf -> MaybeT IO (PixeloBoard, PixeloGame)
-solvePxBuf pxBuf = do
-  colorMap <- lift $ pixbufToColorMap pxBuf
-  let Just pixeloBoard = findPixeloBoard colorMap
-  pixeloGame <- lift $ colorMapToPixeloGame colorMap pixeloBoard
-  let maybeSolvedGame = solvePixeloGame pixeloGame
-  case maybeSolvedGame of
-    Nothing ->  do
-      lift $ do
-        putStrLn "Game is unsolvable. The board is: "
-        putStrLn $ show pixeloGame
-      fail ""
-    Just solvedGame -> lift $ do
-      putStrLn . prettyPrintBoard . pixeloGameGetBoard $ solvedGame
-      return (pixeloBoard, solvedGame)
-
-solvePxBuf2 :: Map m r RGB => m RGB -> MaybeT IO (PixeloBoard, PixeloGame)
-solvePxBuf2 colorMap = do
+solvePxBuf :: Map m r RGB => m RGB -> MaybeT IO (PixeloBoard, PixeloGame)
+solvePxBuf colorMap = do
   let Just pixeloBoard = findPixeloBoard colorMap
   pixeloGame <- lift $ colorMapToPixeloGame colorMap pixeloBoard
   let maybeSolvedGame = solvePixeloGame pixeloGame
@@ -811,15 +793,7 @@ main :: IO ()
 main = WX.start gui
 
 run :: MaybeT IO ()
---run = lift takePxBuf >>= solvePxBuf >>= (lift . uncurry playGame)
---run = lift (takePxBuf >>= pixbufToColorMap >>= evaluate >> return ())
---run = lift (takePxBuf >>= pixbufToArray >>= evaluate >> return ())
-
---run = lift (getScreenShot2 >>= return . imageColorMapToLazyArray >>= evaluate >> return ())
---run = lift (getScreenShot2 >>= evaluate >> return ())
-
---run = lift (getScreenShot3 >>= evaluate >> return ())
-run = lift getScreenShot3 >>= solvePxBuf2 >>= (lift . uncurry playGame)
+run = lift getScreenShot >>= solvePxBuf >>= (lift . uncurry playGame)
 
 gui :: IO ()
 gui = do

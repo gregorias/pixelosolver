@@ -141,6 +141,13 @@ generateSolutions' False _ [] (c : cs) =
     _ -> do 
       sol <- generateSolutions' False 0 [] cs
       return $ Empty : sol
+generateSolutions' False _ [0] [] = [[]]
+generateSolutions' False _ [0] (c : cs) = 
+  case c of
+    Done Full -> []
+    _ -> do
+      sol <- generateSolutions' False 0 [0] (cs)
+      return $ Empty : sol
 generateSolutions' False _ (s : ss) [] = []
 generateSolutions' False _ (s : ss) (c : cs) = 
   case c of

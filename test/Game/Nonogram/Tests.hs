@@ -10,6 +10,8 @@ allTests = testGroup "Game.Nonogram tests"
     , shouldGenerateAllSolutions
     , shouldGenerateAllSolutions2
     , shouldGenerateAllSolutions3
+    , shouldGenerateOnlyOneEmptySolution
+    , shouldGenerateEmptySolution
     ]
 
 shouldShowGameCorrectly = testCase "shouldShowGameCorrectly" 
@@ -53,4 +55,24 @@ shouldGenerateAllSolutions3 = testCase "shouldGenerateAllSolutions3"
   where 
     hints = [2, 2]
     tiles = [Done Empty, Done Full, Unknown, Unknown, Done Full, Done Empty]
+    generatedSolutions = generateSolutions hints tiles
+
+shouldGenerateOnlyOneEmptySolution = testCase
+  "shouldGenerateOnlyOneEmptySolution"
+  $ assertBool "shouldGenerateOnlyOneEmptySolution"
+    (expectedSolutions == generatedSolutions)
+  where 
+    expectedSolutions = [[Empty, Empty]]
+    hints = [0]
+    tiles = [Unknown, Unknown]
+    generatedSolutions = generateSolutions hints tiles
+
+shouldGenerateEmptySolution = testCase
+  "shouldGenerateEmptySolution"
+  $ assertBool "shouldGenerateEmptySolution"
+    (expectedSolutions == generatedSolutions)
+  where 
+    expectedSolutions = [[Empty, Empty]]
+    hints = [0]
+    tiles = [Done Empty, Done Empty]
     generatedSolutions = generateSolutions hints tiles
