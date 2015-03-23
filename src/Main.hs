@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 -- Make definition of constants explicit, especially the interDigitSpace.
 -- Stripe length should be calculated more smartly, or by cutting it.
@@ -8,26 +9,29 @@
 -- Fix recognition of double digits like 20 which do not have space in between.
 --
 --ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
-module Main where
+module Main(
+  module Main,
+  module Data.Graphics,
+  module System.Utils,
+  initGUI
+
+  ) where
 import Control.Applicative
 import Control.Concurrent
+import Control.Exception.Base
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Data.Array
 import Data.Array.Extra
-import Data.Array.IArray(amap)
-import Data.Array.MArray
+import Data.Graphics
 import Data.List
 import Data.Maybe
-import Data.Word
 import Game.Nonogram
 import Graphics.UI.Gtk
 
-import qualified Graphics.X11.Xlib as X
-import Graphics.X11.XTest
-
 import qualified Graphics.UI.WX as WX
 
+import System.Utils
 
 safeHead :: [a] -> Maybe a
 safeHead [] = Nothing
@@ -35,65 +39,6 @@ safeHead (a:_) = Just a
 
 -- Map manipulation
 
-type RGB = (Word8, Word8, Word8)
-
-getRed :: RGB -> Word8
-getRed (r, _, _) = r
-
-getGreen :: RGB -> Word8
-getGreen (_, g, _) = g
-
-getBlue :: RGB -> Word8
-getBlue (_, _, b) = b
-
-white :: RGB
-white = (255, 255, 255)
-
-black :: RGB
-black = (0, 0, 0)
-
-gridGrey :: RGB
-gridGrey = (188, 188, 188)
-
-gridRed :: RGB
-gridRed = (238, 116, 116)
-
-data BW = Black | White deriving (Eq, Show)
-
-type Map = Array (Int, Int)
-type Row = Array Int
-type ColorMap = Array (Int, Int) RGB
-
-mapGetWidth :: Map e -> Int
-mapGetWidth = snd . snd . bounds
-
-mapGetHeight :: Map e -> Int
-mapGetHeight = fst . snd . bounds
-
-type BWMap = Array (Int, Int) BW
-
-colorMapToBWMap :: ColorMap -> BWMap
-colorMapToBWMap = amap (\c -> if c == black then Black else White)
-
-submap :: ((Int, Int), (Int, Int)) -> Map e -> Map e
-submap ((begY, begX), (endY, endX)) =
-  ixmap ((0, 0), (height, width)) (\(y, x) -> (y + begY, x + begX))
-  where
-    (height, width) = (endY - begY, endX - begX)
-
-prettyPrintBW :: BW -> Char
-prettyPrintBW Black = '#'
-prettyPrintBW White = '_'
-
-prettyPrintBWMapRow :: Array Int BW -> String
-prettyPrintBWMapRow bwMapRow = 
-  (map prettyPrintBW (elems bwMapRow)) ++ ['\n']
-
-prettyPrintBWMap :: BWMap -> String
-prettyPrintBWMap bwMap = 
-  concat $ map (\i -> prettyPrintBWMapRow $ getRow i bwMap) [0..height]
-  where
-    height = mapGetHeight bwMap
 
 -- Map recognition
 
@@ -172,11 +117,11 @@ getPixeloBoardRow row =
 findPixeloBoardRow :: [[(Int, RGB)]] -> Maybe [(Int, Int)]
 findPixeloBoardRow = safeHead . catMaybes . map getPixeloBoardRow
 
-findPixeloBoard :: ColorMap -> Maybe PixeloBoard
+findPixeloBoard :: Map m r RGB => m RGB -> Maybe PixeloBoard
 findPixeloBoard colorMap = do
-  let (height, width) = snd . bounds $ colorMap
-  let rows = map assocs $ map (\i -> getRow i colorMap) (reverse [0..height])
-  let columns = map assocs $ map (\i -> getColumn i colorMap) (reverse [0..width])
+  let (height, width) = mapGetSize colorMap
+  let rows = map rowAssocs $ map (\i -> mapGetRow i colorMap) (reverse [0..height])
+  let columns = map rowAssocs $ map (\i -> mapGetColumn i colorMap) (reverse [0..width])
   boardColumn <- findPixeloBoardRow rows
   boardRow <- findPixeloBoardRow columns
   return $ PixeloBoard boardRow boardColumn
@@ -286,7 +231,7 @@ splitRowHintStripe interDigitLeave bwMap =
     maybeFirstCol = fmap fst 
       . findFirst (\(_, col) -> any (== Black) (elems col))
       $ colsWithIdx
-    findLastCol :: [(Int, Row BW)] -> Int
+    findLastCol :: (Row r BW) => [(Int, r BW)] -> Int
     findLastCol cols = 
       if hasHeadAnyBlackPixel
       then
@@ -295,8 +240,9 @@ splitRowHintStripe interDigitLeave bwMap =
         else findLastCol (drop 1 cols)
       else findLastCol (drop 1 cols)
       where
-        hasHeadAnyBlackPixel = any (== Black) (elems . snd . head $ cols)
-        isColumnWhite col = all (== White) (elems col)
+        hasHeadAnyBlackPixel = any (== Black) (rowElems . snd . head $ cols)
+        isColumnWhite :: (Row r BW) => r BW -> Bool
+        isColumnWhite col = all (== White) (rowElems col)
     lastCol = findLastCol colsWithIdx
 
 
@@ -337,8 +283,8 @@ getRowHintPics bwMap board =
   map (map trimBWMap . splitRowHintStripe 6) $ getRowHintStripes bwMap board
 
 -- digit OCR
-getBlackGroups :: Row BW -> [(Int, Int)]
-getBlackGroups = getBlackGroups' . assocs
+getBlackGroups :: (Row r BW) => r BW -> [(Int, Int)]
+getBlackGroups = getBlackGroups' . rowAssocs
 
 getBlackGroups' :: [(Int, BW)] -> [(Int, Int)]
 getBlackGroups' bws = 
@@ -358,7 +304,7 @@ recognizeZero bwMap =
   where
     h = fst . snd . bounds $ bwMap
 
-recognizeZero' :: RecognizeZeroState -> [Row BW] -> Maybe Int
+recognizeZero' :: (Row r BW) => RecognizeZeroState -> [r BW] -> Maybe Int
 recognizeZero' (RecognizeZeroFinalEnd _) [] = return 0
 
 recognizeZero' _ [] = Nothing
@@ -371,7 +317,7 @@ recognizeZero' RecognizeZeroStart (r : rs) =
     _ -> Nothing
   where
     blackGroups = getBlackGroups r
-    w = snd . bounds $ r
+    w = rowGetSize r
     middleW = w `div` 2
 
 recognizeZero' (RecognizeZeroFirstEnd b) (r : rs) =
@@ -399,7 +345,7 @@ recognizeZero' (RecognizeZeroMiddle b0 b1) (r : rs) =
     _ -> Nothing
   where
     blackGroups = getBlackGroups r
-    w = snd . bounds $ r
+    w = rowGetSize r
     middleW = w `div` 2
 
 recognizeZero' (RecognizeZeroFinalEnd b) (r : rs) =
@@ -412,7 +358,7 @@ recognizeZero' (RecognizeZeroFinalEnd b) (r : rs) =
     _ -> Nothing
   where
     blackGroups = getBlackGroups r
-    w = snd . bounds $ r
+    w = rowGetSize r
     middleW = w `div` 2
 
 recognizeOne :: BWMap -> Maybe Int
@@ -434,7 +380,7 @@ recognizeTwo bwMap =
   where
     h = fst . snd . bounds $ bwMap
 
-recognizeTwo' :: RecognizeTwoState -> [Row BW] -> Maybe Int
+recognizeTwo' :: (Row r BW) => RecognizeTwoState -> [r BW] -> Maybe Int
 
 recognizeTwo' (RecognizeTwoBottom _) [] = return 2
 recognizeTwo' _ [] = Nothing
@@ -495,7 +441,7 @@ recognizeThree bwMap =
   where
     w = snd . snd . bounds $ bwMap
 
-recognizeThree' :: RecognizeThreeState -> [Row BW] -> Maybe Int
+recognizeThree' :: (Row r BW) => RecognizeThreeState -> [r BW] -> Maybe Int
 
 recognizeThree' (RecognizeThreeRightEnd _) [] = Just 3
 
@@ -514,7 +460,7 @@ recognizeThree' RecognizeThreeStart (r : rs) =
     _ -> Nothing
   where
     blackGroups = getBlackGroups r
-    h = snd . bounds $ r
+    h = rowGetSize r
 
 recognizeThree' (RecognizeThreeTwoBounds b0 b1) (r : rs) = 
   case blackGroups of
@@ -567,7 +513,7 @@ recognizeFour bwMap = recognizeFour' RecognizeFourStart
   where
     h = fst . snd . bounds $ bwMap
 
-recognizeFour' :: RecognizeFourState -> [Row BW]  -> Maybe Int
+recognizeFour' :: (Row r BW) => RecognizeFourState -> [r BW] -> Maybe Int
 
 recognizeFour' (RecognizeFourBase _) [] = return 4
 recognizeFour' _ [] = Nothing
@@ -629,7 +575,7 @@ recognizeFive bwMap =
   where
     h = fst . snd . bounds $ bwMap
 
-recognizeFive' :: RecognizeFiveState -> [Row BW] -> Maybe Int
+recognizeFive' :: (Row r BW) => RecognizeFiveState -> [r BW] -> Maybe Int
 
 recognizeFive' (RecognizeFiveBottom _) [] = return 5
 recognizeFive' _ [] = Nothing
@@ -701,7 +647,7 @@ recognizeSeven bwMap =
   where
     h = fst . snd . bounds $ bwMap
 
-recognizeSeven' :: RecognizeSevenState -> [Row BW] -> Maybe Int
+recognizeSeven' :: (Row r BW) => RecognizeSevenState -> [r BW] -> Maybe Int
 recognizeSeven' (RecognizeSevenBottom _) [] = return 7
 recognizeSeven' _ [] = Nothing
 
@@ -792,12 +738,15 @@ specPicsToHint (p : ps) = do
 
 -- TODO Blog Above we have a IO dependence that pipes/conduit solves
 
-colorMapToPixeloGame :: ColorMap -> PixeloBoard -> IO PixeloGame
+colorMapToPixeloGame :: (Map m r RGB) => m RGB -> PixeloBoard -> IO PixeloGame
 colorMapToPixeloGame colorMap pixeloBoard =
   do
-    rowHints <- sequence (map specPicsToHint rowHintPics :: [IO [Int]]) :: IO [[Int]]
+    rowHints <- sequence (map specPicsToHint rowHintPics)
     colHints <- sequence (map specPicsToHint colHintPics)
-    return $ PixeloGame (emptyGameBoard height width) rowHints colHints 
+    let
+      rowHints' = map (\l -> case l of { [] -> [0]; _ -> l; }) rowHints
+      colHints' = map (\l -> case l of { [] -> [0]; _ -> l; }) colHints
+    return $ PixeloGame (emptyGameBoard height width) rowHints' colHints'
   where
     bwMap = colorMapToBWMap colorMap
     colHintPics = getColHintPics bwMap pixeloBoard
@@ -805,21 +754,6 @@ colorMapToPixeloGame colorMap pixeloBoard =
     (height, width) = (length rowHintPics, length colHintPics)
 
 -- Mouse clicks
-
-setMousePosition :: Int -> Int -> IO ()
-setMousePosition x y = do
-  dpy <- X.openDisplay ""
-  let dflt = X.defaultScreen dpy
-  _ <- X.rootWindow dpy dflt
-  fakeMotion dpy dflt x y
-  X.closeDisplay dpy
-
-clickMouseButton :: IO ()
-clickMouseButton = do
-  dpy <- X.openDisplay ""
-  fakeButtonPress dpy X.button1
-  X.sync dpy False
-  X.closeDisplay dpy
 
 playGame :: PixeloBoard -> PixeloGame -> IO ()
 playGame pxBoard solvedGame = 
@@ -834,43 +768,13 @@ playGame pxBoard solvedGame =
     processGameTile ((y, x), Done Full) = do
       let (mouseX, mouseY) = (fst (colPositions !! x) + (tileWidth `div` 2),
                               fst (rowPositions !! y) + (tileWidth `div` 2))
-      setMousePosition mouseX mouseY
-      clickMouseButton
+      clickMouseButtonAt mouseX mouseY
       threadDelay 10000
         
     processGameTile _ = return ()
 
 
 -- Pixbuf and Gtk functions
-
-pixbufToColorMap :: Pixbuf -> IO ColorMap
-pixbufToColorMap pixbuf = do
-  (pixbufData :: PixbufData Int Word8) <- pixbufGetPixels pixbuf
-  (frozenPixbufData :: Array Int Word8) <- freeze pixbufData
-  width <- pixbufGetWidth pixbuf
-  height <- pixbufGetHeight pixbuf
-  rowstride <- pixbufGetRowstride pixbuf
-  nChannels <- pixbufGetNChannels pixbuf
-  let colorMapSize = (height - 1, width - 1)
-      offsetMap = array
-        ((0,0), colorMapSize)
-        [((y, x), y * rowstride + x * nChannels) |
-            (y, x) <- range ((0, 0), colorMapSize)]
-  return $ amap (\offset -> (frozenPixbufData ! offset, frozenPixbufData ! (offset + 1), frozenPixbufData ! (offset + 2))) offsetMap
-
-loadPixbuf :: IO (Maybe Pixbuf)
-loadPixbuf = do
-  Just screen <- screenGetDefault
-  window <- screenGetRootWindow screen
-  size <- drawableGetSize window
-  origin <- drawWindowGetOrigin window
-  pixbufGetFromDrawable window ((uncurry . uncurry Rectangle) origin size)
-
-takePxBuf :: IO Pixbuf
-takePxBuf = do
-  threadDelay 1000000
-  Just pxbuf <- loadPixbuf
-  return pxbuf
 
 solvePxBuf :: Pixbuf -> MaybeT IO (PixeloBoard, PixeloGame)
 solvePxBuf pxBuf = do
@@ -888,11 +792,34 @@ solvePxBuf pxBuf = do
       putStrLn . prettyPrintBoard . pixeloGameGetBoard $ solvedGame
       return (pixeloBoard, solvedGame)
 
+solvePxBuf2 :: Map m r RGB => m RGB -> MaybeT IO (PixeloBoard, PixeloGame)
+solvePxBuf2 colorMap = do
+  let Just pixeloBoard = findPixeloBoard colorMap
+  pixeloGame <- lift $ colorMapToPixeloGame colorMap pixeloBoard
+  let maybeSolvedGame = solvePixeloGame pixeloGame
+  case maybeSolvedGame of
+    Nothing ->  do
+      lift $ do
+        putStrLn "Game is unsolvable. The board is: "
+        putStrLn $ show pixeloGame
+      fail ""
+    Just solvedGame -> lift $ do
+      putStrLn . prettyPrintBoard . pixeloGameGetBoard $ solvedGame
+      return (pixeloBoard, solvedGame)
+
 main :: IO ()
 main = WX.start gui
 
 run :: MaybeT IO ()
-run = lift takePxBuf >>= solvePxBuf >>= (lift . uncurry playGame)
+--run = lift takePxBuf >>= solvePxBuf >>= (lift . uncurry playGame)
+--run = lift (takePxBuf >>= pixbufToColorMap >>= evaluate >> return ())
+--run = lift (takePxBuf >>= pixbufToArray >>= evaluate >> return ())
+
+--run = lift (getScreenShot2 >>= return . imageColorMapToLazyArray >>= evaluate >> return ())
+--run = lift (getScreenShot2 >>= evaluate >> return ())
+
+--run = lift (getScreenShot3 >>= evaluate >> return ())
+run = lift getScreenShot3 >>= solvePxBuf2 >>= (lift . uncurry playGame)
 
 gui :: IO ()
 gui = do

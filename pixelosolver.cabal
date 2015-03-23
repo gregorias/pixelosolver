@@ -20,31 +20,43 @@ executable pixelosolver
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.6 && <4.7
+  build-depends:       base >= 4.6 && < 4.7
                        , array
+                       , deepseq >= 1.3
                        , gtk
                        , transformers
-                       , wx
+                       , wx >= 0.91
+                       , wxcore >= 0.91
                        , X11
                        , xtest
-  ghc-options:         -Wall -rtsopts
+  ghc-options:         -Wall -rtsopts -O2
   hs-source-dirs:      src
   default-language:    Haskell2010
 
 library
-  exposed-modules:     Game.Nonogram
+  exposed-modules:     
+                       Main
+                       , Data.Graphics
+                       , Game.Nonogram
+                       , System.Utils
   hs-source-dirs:      src
-  build-depends:       base >=4.6 && <4.7
+  build-depends:       base >= 4.6 && <4.7
                        , array
+                       , deepseq >= 1.3
                        , transformers
+                       , gtk
+                       , wx >= 0.91
+                       , wxcore >= 0.91
+                       , X11
+                       , xtest
   default-language:    Haskell2010
 
 test-suite tests
   type:                exitcode-stdio-1.0
   main-is:             Test.hs
   hs-source-dirs:      test, src
-  build-depends:       base >=4.6 && <4.7
+  build-depends:       base >= 4.6 && < 4.7
                        , array
-                       , tasty >=0.10
-                       , tasty-hunit >=0.9
+                       , tasty >= 0.10
+                       , tasty-hunit >= 0.9
   default-language:    Haskell2010
