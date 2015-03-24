@@ -1,10 +1,11 @@
-module Game.Nonogram where
+module PixeloSolver.Game.Nonogram where
 
 import Control.Arrow
 import Control.Monad
 import Data.Array
-import Data.Array.Extra
 import Text.Printf
+
+import PixeloSolver.Data.Array.Extra
 
 -- Data and Show instance definitions
 

@@ -25,6 +25,7 @@ executable pixelosolver
                        , deepseq >= 1.3
                        , gtk
                        , transformers
+                       , transformers-compat
                        , wx >= 0.91
                        , wxcore >= 0.91
                        , X11
@@ -34,16 +35,16 @@ executable pixelosolver
   default-language:    Haskell2010
 
 library
-  exposed-modules:     
-                       Main
-                       , Data.Graphics
-                       , Game.Nonogram
-                       , System.Utils
+  exposed-modules:     Main
+                       , PixeloSolver.Data.Graphics
+                       , PixeloSolver.Game.Nonogram
+                       , PixeloSolver.Graphics.Utils
   hs-source-dirs:      src
   build-depends:       base >= 4.6 && <4.7
                        , array
                        , deepseq >= 1.3
                        , transformers
+                       , transformers-compat
                        , gtk
                        , wx >= 0.91
                        , wxcore >= 0.91

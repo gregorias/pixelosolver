@@ -1,24 +1,31 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
-module System.Utils where
+module PixeloSolver.Graphics.Utils(
+  getScreenshot
+  , clickMouseButtonAt
+  , showButtonDialog
+  ) where
 
 import Data.Array.IArray
 import Data.Array.IO
 import Data.Array.Unboxed(UArray)
-import Data.Graphics
 import Data.Word
 import Foreign.Storable
 
 import qualified Graphics.X11.Xlib as X
 import Graphics.X11.XTest
 
+import qualified Graphics.UI.WX as WX
+
 import qualified Graphics.UI.WXCore as WXC
 import qualified Graphics.UI.WXCore.WxcTypes as WXC
 
+import PixeloSolver.Data.Graphics
+
 -- Screenshot helpers
 
-getScreenShot :: IO (UnboxedColorMap e)
-getScreenShot = do
+getScreenshot :: IO (UnboxedColorMap e)
+getScreenshot = do
   screenDC :: (WXC.ScreenDC ()) <- WXC.screenDCCreate
   dcSize <- WXC.dcGetSize screenDC
   bitmap :: WXC.Bitmap () <- WXC.bitmapCreateEmpty dcSize 24
@@ -72,3 +79,13 @@ clickMouseButtonAt :: Int -> Int -> IO ()
 clickMouseButtonAt x y  = do
   setMousePosition x y
   clickMouseButton
+
+-- | Show a button dialog with "Solve it" button which runs provided IO action
+-- on click.
+showButtonDialog :: IO () -- ^ action to run on click.
+  -> IO ()
+showButtonDialog action = WX.start $ do
+  f <- WX.frame [WX.text WX.:= "Pixelo Solver"]
+  _ <- WX.button f [WX.text WX.:= "Solve it",
+    WX.on WX.command WX.:= action]
+  return ()

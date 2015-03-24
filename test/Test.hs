@@ -1,8 +1,9 @@
 module Main where
 
-import Game.Nonogram.Tests
 import Test.Tasty
 import Test.Tasty.HUnit
+
+import PixeloSolver.Game.Nonogram.Tests
 
 hunitTests = allTests
 

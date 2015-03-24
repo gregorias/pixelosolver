@@ -3,10 +3,9 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Data.Graphics where
+module PixeloSolver.Data.Graphics where
 
 import Control.DeepSeq
-import Data.Array.Extra
 import Data.Array.IArray
 import Data.Array.Unboxed(UArray)
 import Data.Word

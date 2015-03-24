@@ -1,9 +1,12 @@
-module Game.Nonogram.Tests where
+module PixeloSolver.Game.Nonogram.Tests(
+  allTests
+  ) where
 
 import Data.List
-import Game.Nonogram
 import Test.Tasty
 import Test.Tasty.HUnit
+
+import PixeloSolver.Game.Nonogram
 
 allTests = testGroup "Game.Nonogram tests" 
   [shouldShowGameCorrectly

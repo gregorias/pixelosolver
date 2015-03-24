@@ -1,4 +1,4 @@
-module Data.Array.Extra (
+module PixeloSolver.Data.Array.Extra (
   getColumn
   , setColumn
   , getRow
