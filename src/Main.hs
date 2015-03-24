@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 -- Make definition of constants explicit, especially the interDigitSpace.
 -- Stripe length should be calculated more smartly, or by cutting it.
---Fix crashses when taking screenshot without board on it.
 -- Decrease memory footprint
 -- Optimize, especially board finding
 -- Finish recognition algorithm for 6 and 9

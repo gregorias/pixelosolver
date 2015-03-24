@@ -732,4 +732,3 @@ colorMapToPixeloGame colorMap pixeloBoard =
     colHintPics = getColHintPics bwMap pixeloBoard
     rowHintPics = getRowHintPics bwMap pixeloBoard
     (height, width) = (length rowHintPics, length colHintPics)
-
