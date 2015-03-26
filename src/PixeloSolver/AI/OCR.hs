@@ -1,5 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module PixeloSolver.AI.OCR(
   PixeloBoard(..)
   , pixeloBoardGetTileWidth
@@ -9,7 +12,6 @@ module PixeloSolver.AI.OCR(
   , findPixeloBoard
   ) where
 import Control.Applicative
-import Control.Monad.Trans.Class
 import Data.Array
 import Data.List
 import Data.Maybe
@@ -28,6 +30,19 @@ distanceTolerance = 6
 
 minimalTileLength :: Int
 minimalTileLength = 15
+
+emptySpaceTolerance :: Int
+emptySpaceTolerance = 22
+
+class BlackCheckable e where
+  isBlack :: e -> Bool
+
+instance BlackCheckable BW where
+  isBlack Black = True
+  isBlack _ = False
+
+instance BlackCheckable RGB where
+  isBlack = (== black)
 
 groupNeighbours :: (a -> a -> Bool) -> [a] -> [[a]]
 groupNeighbours check as = groupNeighbours' [] check as
@@ -132,6 +147,43 @@ getRowHintStripes bwMap board =
     stripeLength = stripeLengthMultiplier * (pixeloBoardGetTileWidth board)
     rowDims = pixeloBoardGetRows board
 
+splitBlackPatchesByColumn :: (BlackCheckable e, Map m r e) 
+  => m e
+  -> [m e]
+splitBlackPatchesByColumn stripe = 
+  case maybeBegOfFirstPatch of
+    Just (begColumn, _) -> submap ((0, begColumn), (height, endColumn)) stripe 
+      : splitBlackPatchesByColumn 
+        (submap ((0, endColumn + 1), (height, width)) stripe)
+    Nothing -> []
+  where
+    (height, width) = mapGetSize stripe
+    idxColumns = zip [0..height] 
+      (map (\i -> mapGetColumn i stripe) [0..height])
+    (maybeBegOfFirstPatch, columnsTail) = 
+      findFirstWithTail (any isBlack . rowElems . snd) idxColumns
+    maybeEndOfFirstPatch = findFirst (not . any isBlack . rowElems . snd)
+      columnsTail
+    endColumn = fromMaybe width . fmap fst $ maybeEndOfFirstPatch
+
+splitBlackPatchesByRow :: (BlackCheckable e, Map m r e) 
+  => m e
+  -> [m e]
+splitBlackPatchesByRow stripe = 
+  case maybeBegOfFirstPatch of
+    Just (begRow, _) -> submap ((begRow, 0), (endRow, width)) stripe 
+      : splitBlackPatchesByRow 
+        (submap ((endRow + 1, 0), (height, width)) stripe)
+    Nothing -> []
+  where
+    (height, width) = mapGetSize stripe
+    idxRows = zip [0..width] 
+      (map (\i -> mapGetRow i stripe) [0..width])
+    (maybeBegOfFirstPatch, tail) = 
+      findFirstWithTail (any isBlack . rowElems . snd) idxRows
+    maybeEndOfFirstPatch = findFirst (not . any isBlack . rowElems . snd) tail
+    endRow = fromMaybe height . fmap fst $ maybeEndOfFirstPatch
+
 splitBWMapByColumn :: BWMap -> [BWMap]
 splitBWMapByColumn = splitBWMapByColumn' 0 0
 
@@ -175,7 +227,7 @@ splitBWMapByRow' first curRow bwMap =
     (height, width) = snd . bounds $ bwMap
 
 findFirst :: (a -> Bool) -> [a] -> Maybe a
-findFirst  predicate as = safeHead . filter predicate $ as
+findFirst predicate as = safeHead . filter predicate $ as
 
 findFirstWithTail :: (a -> Bool) -> [a] -> (Maybe a, [a])
 findFirstWithTail _ [] = (Nothing, [])
@@ -226,26 +278,26 @@ splitRowHintStripe interDigitLeave bwMap =
     lastCol = findLastCol colsWithIdx
 
 
-trimBWMap :: BWMap -> BWMap
-trimBWMap bwMap = 
+trimNonblack :: (BlackCheckable e, Map m r e) => m e -> m e
+trimNonblack bwMap = 
     case maybeTrimmed of
       Just finalBWMap -> finalBWMap
-      Nothing -> array ((0, 0), (-1, -1)) []
+      Nothing -> submap ((h + 1, w + 1), (h, w)) bwMap
     where 
-      (h, w) = snd . bounds $ bwMap
-      rowsWithIdx = map (\i -> (i, getRow i bwMap)) [0..h]
-      colsWithIdx = map (\i -> (i, getColumn i bwMap)) [0..w]
+      (h, w) = mapGetSize bwMap
+      rowsWithIdx = map (\i -> (i, mapGetRow i bwMap)) [0..h]
+      colsWithIdx = map (\i -> (i, mapGetColumn i bwMap)) [0..w]
       firstRow = fmap fst 
-        . findFirst (\(_, c) -> any (== Black) (elems c))
+        . findFirst (\(_, c) -> any isBlack (rowElems c))
         $ rowsWithIdx
       lastRow = fmap fst 
-        . findLast (\(_, c) -> any (== Black) (elems c))
+        . findLast (\(_, c) -> any isBlack (rowElems c))
         $ rowsWithIdx
       firstCol = fmap fst 
-        . findFirst (\(_, c) -> any (== Black) (elems c))
+        . findFirst (\(_, c) -> any isBlack (rowElems c))
         $ colsWithIdx
       lastCol = fmap fst 
-        . findLast (\(_, c) -> any (== Black) (elems c))
+        . findLast (\(_, c) -> any isBlack (rowElems c))
         $ colsWithIdx
       maybeTrimmed = do 
         fR <- firstRow
@@ -256,11 +308,20 @@ trimBWMap bwMap =
 
 getColHintPics ::  BWMap -> PixeloBoard -> [[BWMap]]
 getColHintPics bwMap board = 
-  map (map trimBWMap . splitBWMapByRow) $ getColHintStripes bwMap board
+  map (map trimNonblack . splitBWMapByRow) $ getColHintStripes bwMap board
+
+getColumnHints ::  (BlackCheckable e, Map m r e) 
+  => m e 
+  -> PixeloBoard 
+  -> [[m e]]
+getColumnHints screenshot board = 
+  map (map trimNonblack . splitBlackPatchesByRow) 
+  . map (trimColumnHintsStripe  emptySpaceTolerance)
+  $ cutColumnHintsStripes screenshot board
 
 getRowHintPics ::  BWMap -> PixeloBoard -> [[BWMap]]
 getRowHintPics bwMap board = 
-  map (map trimBWMap . splitRowHintStripe 6) $ getRowHintStripes bwMap board
+  map (map trimNonblack . splitRowHintStripe 6) $ getRowHintStripes bwMap board
 
 -- digit OCR
 getBlackGroups :: (Row r BW) => r BW -> [(Int, Int)]
@@ -718,6 +779,8 @@ specPicsToHint (p : ps) = do
 
 -- TODO Blog Above we have a IO dependence that pipes/conduit solves
 
+-- | Extracts hint information from the screenshot and uses OCR to transform it
+-- into a PixeloGame object
 colorMapToPixeloGame :: (Map m r RGB) => m RGB -> PixeloBoard -> IO PixeloGame
 colorMapToPixeloGame colorMap pixeloBoard =
   do
@@ -732,3 +795,74 @@ colorMapToPixeloGame colorMap pixeloBoard =
     colHintPics = getColHintPics bwMap pixeloBoard
     rowHintPics = getRowHintPics bwMap pixeloBoard
     (height, width) = (length rowHintPics, length colHintPics)
+
+-- Stripe extraction functions
+
+-- | Cut submaps of a screenshot which are aligned with board's columns and
+-- start at the vertical beginning of the screenshot and end on first row.
+cutColumnHintsStripes :: (Map m r e) => m e -> PixeloBoard -> [m e]
+cutColumnHintsStripes m b = map (cutColumnHintsStripe m) 
+  . pixeloBoardGetColumns $ b
+  where
+    yEnd = pixeloBoardGetFirstRowY b
+    cutColumnHintsStripe :: (Map m r e) => m e -> (Int, Int) -> m e
+    cutColumnHintsStripe stripe (xBeg, xEnd) = submap 
+      ((0, xBeg), (yEnd, xEnd)) 
+      stripe
+
+-- | Cut submaps of a screenshot which are aligned with board's rows and start
+-- at the horizontal beginning of the screenshot and end on first column.
+cutRowHintsStripes :: (Map m r e) => m e -> PixeloBoard -> [m e]
+cutRowHintsStripes m b = map (cutRowHintsStripe m)
+  . pixeloBoardGetRows $ b
+  where
+    xEnd = pixeloBoardGetFirstColX b
+    cutRowHintsStripe :: (Map m r e) => m e -> (Int, Int) -> m e
+    cutRowHintsStripe stripe (yBeg, yEnd) = submap 
+      ((yBeg, 0), (yEnd, xEnd)) 
+      stripe
+
+
+-- | Trims column hints strip. Starting from bottom of the strip it searches for
+-- N consecutive rows that do not have black pixels in them. Then it cuts the
+-- top of the strip at that point. N is also called empty space tolerance.
+trimColumnHintsStripe ::
+  (BlackCheckable e, Map m r e)
+  => Int -- ^ empty space tolerance. 
+  -> m e
+  -> m e
+trimColumnHintsStripe t m = submap ((lastHintRow, 0), (height, width)) m
+  where
+    (height, width) = mapGetSize $ m
+    lastHintRow = (height + 1 -) 
+      $ findLastHintDim mapGetRow t m (reverse [0..height])
+
+-- | Row version of trimColumnHintsStripe
+trimRowHintsStripe ::
+  (BlackCheckable e, Map m r e)
+  => Int -- ^ empty space tolerance. 
+  -> m e
+  -> m e
+trimRowHintsStripe t m = submap ((0, lastHintColumn), (height, width)) m
+  where
+    (height, width) = mapGetSize $ m
+    lastHintColumn = (height + 1 -)
+      $ findLastHintDim mapGetColumn t m (reverse [0..width])
+
+hasRowBlack :: (BlackCheckable e, Row r e) => r e -> Bool
+hasRowBlack = any (isBlack) . rowElems
+
+findLastHintDim :: 
+  (BlackCheckable e, Map m r e) 
+  => ((BlackCheckable e, Map m r e) => Int -> m e -> r e)
+  -> Int
+  -> m e
+  -> [Int]
+  -> Int
+findLastHintDim getDim tolerance m searchOrder =
+  length 
+  . concat 
+  . takeWhile (\bs -> head bs == True || length bs <= tolerance) 
+  . group 
+  . map (\i -> hasRowBlack . getDim i $ m) 
+  $ searchOrder
