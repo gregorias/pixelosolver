@@ -9,6 +9,7 @@
 --ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
 module Main(
   module Main
+  , module PixeloSolver.AI.OCR
   , module PixeloSolver.Data.Graphics
   , module PixeloSolver.Graphics.Utils
   , initGUI
@@ -60,7 +61,7 @@ screenshotToBoardAndGame :: Map m r RGB => m RGB
   -> ExceptT String IO (PixeloBoard, PixeloGame)
 screenshotToBoardAndGame colorMap = do
   pixeloBoard <- ExceptT . return . runExcept . screenshotToBoard $ colorMap
-  pixeloGame <- lift $ colorMapToPixeloGame colorMap pixeloBoard
+  pixeloGame <- lift $ screenshotToPixeloGame colorMap pixeloBoard
   return (pixeloBoard, pixeloGame)
 
 solveGame :: (PixeloBoard, PixeloGame) -> Except String PixeloGame
