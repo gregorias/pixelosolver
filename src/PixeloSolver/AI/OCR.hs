@@ -3,16 +3,14 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{- module PixeloSolver.AI.OCR(
+module PixeloSolver.AI.OCR(
   PixeloBoard(..)
   , pixeloBoardGetTileWidth
   , pixeloBoardGetWidth
   , pixeloBoardGetHeight
   , screenshotToPixeloGame
   , findPixeloBoard
-  ) where -}
-
-module PixeloSolver.AI.OCR where
+  ) where
 
 import Control.Applicative
 import Control.Monad.Reader
@@ -46,16 +44,6 @@ data NumberTolerances = NT {
 
 numberTolerance :: NumberTolerances
 numberTolerance = NT 26 12
-
-class BlackCheckable e where
-  isBlack :: e -> Bool
-
-instance BlackCheckable BW where
-  isBlack Black = True
-  isBlack _ = False
-
-instance BlackCheckable RGB where
-  isBlack = (== black)
 
 data PixeloBoard = PixeloBoard {
   pixeloBoardGetRows :: [(Int, Int)]
@@ -91,14 +79,11 @@ screenshotToPixeloGame colorMap pixeloBoard =
     return $ PixeloGame (emptyGameBoard height width) rowHints' colHints'
   where
     columnHintsStrips = getColumnHints colorMap pixeloBoard -- :: [[m RGB]]
-    colHintPics' = map
+    colHintPics = map
       (map (map (trimNonblack . snd) . splitBlackPatchesByColumn))
       columnHintsStrips
-    rowHintPics' = map (mergeHints numberTolerance)
+    rowHintPics = map (mergeHints numberTolerance)
       $ getRowHints colorMap pixeloBoard
-
-    colHintPics = map (map (map colorMapToBWMap)) colHintPics'
-    rowHintPics = map (map (map colorMapToBWMap)) rowHintPics'
     (height, width) = (length rowHintPics, length colHintPics)
 
 groupNeighbours :: (a -> a -> Bool) -> [a] -> [[a]]
@@ -291,18 +276,18 @@ mergeHints t (x : y : xs) =
       ((yBegSnd + yEndSnd) `div` 2)
       ((yBegFst + yEndFst) `div` 2)
 
-hintPicsToInt :: [BWMap] -> IO Int
-hintPicsToInt bwMaps =
-  case recognizeNumber bwMaps of
+hintPicsToInt :: (BlackCheckable e, Map m r e) => [m e] -> IO Int
+hintPicsToInt digitImages =
+  case recognizeNumber digitImages of
     Just num -> return num
     _ -> do
-        digits <- mapM (\bwMap -> do
-          putStr . prettyPrintBWMap $ bwMap
+        digits <- mapM (\image -> do
+          putStr . prettyPrintBWMap . mapToBWMap $ image
           num <- getLine
-          return $ read num) bwMaps
+          return $ read num) digitImages
         return $ foldl (\a b -> 10 * a + b) 0 digits
 
-specPicsToHint :: [[BWMap]] -> IO [Int]
+specPicsToHint :: (BlackCheckable e, Map m r e) => [[m e]] -> IO [Int]
 specPicsToHint [] = return []
 specPicsToHint (p : ps) = do
   spec <- hintPicsToInt p

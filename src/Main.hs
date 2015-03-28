@@ -1,29 +1,13 @@
 {-# LANGUAGE FlexibleContexts #-}
--- Make definition of constants explicit, especially the interDigitSpace.
--- Stripe length should be calculated more smartly, or by cutting it.
--- Decrease memory footprint
--- Optimize, especially board finding
--- Finish recognition algorithm for 6 and 9
--- Fix recognition of double digits like 20 which do not have space in between.
---
---ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
-module Main(
-  module Main
-  , module PixeloSolver.AI.OCR
-  , module PixeloSolver.Data.Graphics
-  , module PixeloSolver.Graphics.Utils
-  , initGUI
-  ) where
+module Main(main) where
 
 import Control.Arrow
 import Control.Concurrent
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Array
-import Graphics.UI.Gtk
 
 import PixeloSolver.AI.OCR
-import PixeloSolver.Data.Array.Extra
 import PixeloSolver.Data.Graphics
 import PixeloSolver.Game.Nonogram
 import PixeloSolver.Graphics.Utils
@@ -64,8 +48,8 @@ screenshotToBoardAndGame colorMap = do
   pixeloGame <- lift $ screenshotToPixeloGame colorMap pixeloBoard
   return (pixeloBoard, pixeloGame)
 
-solveGame :: (PixeloBoard, PixeloGame) -> Except String PixeloGame
-solveGame (pixeloBoard, unsolvedGame) = do
+solveGame :: PixeloGame -> Except String PixeloGame
+solveGame unsolvedGame = do
   let maybeSolvedGame = solvePixeloGame unsolvedGame
   case maybeSolvedGame of
     Nothing -> throwE $ "Game is unsolvable. The board is: \n"
@@ -87,7 +71,7 @@ pipeline = lift getScreenshot
   >>= (runKleisli $ kleisliFst &&& kleisliSolveGame) 
   >>= (lift . uncurry playGame)
   where
-    kleisliSolveGame = Kleisli $ ExceptT . return . runExcept . solveGame
+    kleisliSolveGame = Kleisli $ ExceptT . return . runExcept . solveGame . snd
       :: Kleisli (ExceptT String IO) (PixeloBoard, PixeloGame) PixeloGame
     kleisliFst = Kleisli $ return . fst
 

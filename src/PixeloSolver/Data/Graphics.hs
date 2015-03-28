@@ -61,6 +61,16 @@ class (Row r e) => Map m r e | m -> r where
 
 data BW = Black | White deriving (Eq, Show)
 
+class BlackCheckable e where
+  isBlack :: e -> Bool
+
+instance BlackCheckable BW where
+  isBlack Black = True
+  isBlack _ = False
+
+instance BlackCheckable RGB where
+  isBlack = (== black)
+
 type UnboxedColorMapIx = (Int, Int, Int)
 newtype UnboxedColorRow e = UCR { getUCR :: (UArray (Int, Int) Word8) }
 newtype UnboxedColorMap e = UCM { getUCM :: (UArray UnboxedColorMapIx Word8) }
@@ -138,13 +148,13 @@ instance Map BoxedMap BoxedRow e where
     where
       height = mapGetHeight bM
 
-colorMapToBWMap :: (Map m r RGB) => m RGB -> BWMap
-colorMapToBWMap m = listArray boundaries 
+mapToBWMap :: (BlackCheckable e, Map m r e) => m e -> BWMap
+mapToBWMap m = listArray boundaries 
   [filterBlack . mapGet i $ m | i <- range boundaries]
   where 
     (height, width) = mapGetSize m
     boundaries = ((0, 0), (height, width))
-    filterBlack = \c -> if c == black then Black else White
+    filterBlack = \c -> if isBlack c then Black else White
 
 prettyPrintBW :: BW -> Char
 prettyPrintBW Black = '#'

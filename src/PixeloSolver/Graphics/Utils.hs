@@ -46,7 +46,8 @@ getScreenshot = do
 
 ptrToColorMap :: Int -> Int -> WXC.Ptr Word8 -> IO (UnboxedColorMap e)
 ptrToColorMap width height p = do
-  ioArr :: (IOUArray (Int, Int, Int) Word8) <- newListArray ((0, 0, 0), (height - 1, width - 1, 2)) (repeat 0)
+  ioArr :: (IOUArray (Int, Int, Int) Word8) <-
+    newListArray ((0, 0, 0), (height - 1, width - 1, 2)) (repeat 0)
   mapM_ (\(y, x) -> x `seq` y `seq` do
     red <- peekElemOff p (y * width * 3 + x * 3)
     green <- peekElemOff p (y * width * 3 + x * 3 + 1)

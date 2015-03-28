@@ -1,0 +1,10 @@
+-- Make definition of constants explicit, especially the interDigitSpace.
+--   Add constants to method signature and provide their documentation
+-- Decrease memory footprint
+-- Optimize, especially board finding
+--
+--ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
+
+-- 410 problems
+
+Add solving gif!
