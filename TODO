@@ -5,6 +5,8 @@
 --
 --ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
 
--- 410 problems
+-- problem with 410
+
+-- Make a screenshot and use it for example
 
 Add solving gif!

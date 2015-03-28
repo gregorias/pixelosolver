@@ -1,9 +1,15 @@
-module PixeloSolver.Game.Nonogram where
+module PixeloSolver.Game.Nonogram(
+  PixeloTile (..)
+  , PixeloTileFill(..)
+  , PixeloGame(..)
+  , emptyGameBoard
+  , solvePixeloGame
+  , generateSolutions
+  ) where
 
 import Control.Arrow
 import Control.Monad
 import Data.Array
-import Text.Printf
 
 import PixeloSolver.Data.Array.Extra
 
@@ -41,22 +47,22 @@ instance Show PixeloGame where
         $ rowHints
 
       showRow :: Int -> ([Int], Array Int PixeloTile) -> String
-      showRow rowHintsStringLength = 
+      showRow stringLength = 
         (++ "\n")
         . (uncurry (++))
-        . (showRowHints rowHintsStringLength *** showBoardRow)
+        . (showRowHints stringLength *** showBoardRow)
       showRowHints :: Int -> [Int] -> String
-      showRowHints rowHintsStringLength row = 
+      showRowHints stringLength row = 
         replicate prefixLength ' ' ++ hintsToString rowHintsFieldLength row
         where 
-          prefixLength = rowHintsStringLength 
+          prefixLength = stringLength 
             - hintsStringLength rowHintsFieldLength row
 
       showBoardRow :: Array Int PixeloTile -> String
       showBoardRow = concat . map show . elems
 
 intLength :: Int -> Int
-intLength = ceiling . (logBase 10) . fromIntegral . (+ 1)
+intLength = ceiling . (logBase (10 :: Double)) . fromIntegral . (+ 1)
 
 hintFieldLength :: Int -> Int
 hintFieldLength = (+ 1) . intLength
@@ -69,7 +75,7 @@ hintsStringLength fieldLength = (* fieldLength) . length
 
 columnHintsToCharArray :: [[Int]] -> Array (Int, Int) Char
 columnHintsToCharArray hss = 
-  initialArray // assocs
+  initialArray // arrAssocs
   where
     maxHintFieldLength = getMaxHintFieldLength hss
     height = maximum 
@@ -80,7 +86,7 @@ columnHintsToCharArray hss =
       ((0, 0), (height - 1, width - 1))
       (replicate (width * height) ' ')
     columnStrings = map (hintsToString maxHintFieldLength) hss
-    assocs = concat 
+    arrAssocs = concat 
       . map 
         (\(x, columnString) -> 
           let
@@ -111,7 +117,7 @@ charArrayToColumnHintsString' (y, x) prefixLength charArray =
     (height, width) = snd . bounds $ charArray
 
 hintsToString :: Int -> [Int] -> String
-hintsToString fieldLength [] = ""
+hintsToString _ [] = ""
 hintsToString fieldLength (h : hs) = 
   (prefix ++ hint ++ " ") ++ hintsToString fieldLength hs
   where 
@@ -149,7 +155,7 @@ generateSolutions' False _ [0] (c : cs) =
     _ -> do
       sol <- generateSolutions' False 0 [0] (cs)
       return $ Empty : sol
-generateSolutions' False _ (s : ss) [] = []
+generateSolutions' False _ (_ : _) [] = []
 generateSolutions' False _ (s : ss) (c : cs) = 
   case c of
     Done Full -> generateSolutions' True s ss (c : cs)
@@ -190,7 +196,7 @@ mergeSolutions' constraints (s : ss) =
 
 mergeSolution :: [PixeloTile] -> [PixeloTileFill] -> [PixeloTile]
 mergeSolution [] [] = []
-mergeSolution (Unknown : cs) (s : ss) = Unknown : (mergeSolution cs ss)
+mergeSolution (Unknown : cs) (_ : ss) = Unknown : (mergeSolution cs ss)
 mergeSolution (Done a : cs) (s : ss) =
   if a == s
   then Done a : (mergeSolution cs ss)

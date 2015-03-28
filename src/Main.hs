@@ -12,6 +12,26 @@ import PixeloSolver.Data.Graphics
 import PixeloSolver.Game.Nonogram
 import PixeloSolver.Graphics.Utils
 
+-- Constants used by OCR
+
+distanceTolerance :: TileDistanceTolerance
+distanceTolerance = 6
+
+minimalTileLength :: MinimalTileLength
+minimalTileLength = 15
+
+findBoardConstants :: FindBoardConstants
+findBoardConstants = (distanceTolerance, minimalTileLength)
+
+numberTolerances :: NumberTolerances
+numberTolerances = NT 26 12
+
+emptyStripeSpaceTolerance :: EmptyStripeSpaceTolerance
+emptyStripeSpaceTolerance = 35
+
+ocrConstants :: OCRConstants
+ocrConstants = OCRConstants emptyStripeSpaceTolerance numberTolerances
+
 -- | Clicks fills on the screen using pixelo's board coordinates and
 -- solved game.
 playGame :: PixeloBoard -> PixeloGame -> IO ()
@@ -36,7 +56,7 @@ playGame pxBoard solvedGame =
 
 screenshotToBoard :: Map m r RGB => m RGB -> Except String PixeloBoard
 screenshotToBoard colorMap = do
-  let maybePixeloBoard = findPixeloBoard colorMap
+  let maybePixeloBoard = findPixeloBoard findBoardConstants colorMap
   case maybePixeloBoard of 
     Nothing -> throwE "Couldn't find Pixelo's board."
     Just pixeloBoard -> return pixeloBoard
@@ -45,7 +65,7 @@ screenshotToBoardAndGame :: Map m r RGB => m RGB
   -> ExceptT String IO (PixeloBoard, PixeloGame)
 screenshotToBoardAndGame colorMap = do
   pixeloBoard <- ExceptT . return . runExcept . screenshotToBoard $ colorMap
-  pixeloGame <- lift $ screenshotToPixeloGame colorMap pixeloBoard
+  pixeloGame <- lift $ screenshotToPixeloGame ocrConstants colorMap pixeloBoard
   return (pixeloBoard, pixeloGame)
 
 solveGame :: PixeloGame -> Except String PixeloGame

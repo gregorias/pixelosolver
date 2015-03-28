@@ -8,8 +8,14 @@ module PixeloSolver.AI.OCR(
   , pixeloBoardGetTileWidth
   , pixeloBoardGetWidth
   , pixeloBoardGetHeight
-  , screenshotToPixeloGame
+  , TileDistanceTolerance
+  , MinimalTileLength
+  , FindBoardConstants
+  , EmptyStripeSpaceTolerance
+  , NumberTolerances(..)
+  , OCRConstants(..)
   , findPixeloBoard
+  , screenshotToPixeloGame
   ) where
 
 import Control.Applicative
@@ -23,27 +29,38 @@ import Text.Parsec.Combinator
 
 import PixeloSolver.Data.Graphics
 import PixeloSolver.Game.Nonogram
+
 safeHead :: [a] -> Maybe a
 safeHead [] = Nothing
 safeHead (a:_) = Just a
 
--- | distance tolerance between board's white tile
-distanceTolerance :: Int
-distanceTolerance = 6
+-- | Distance tolerance between board's white tile. Two white groups of pixels
+-- that lie withing that distance are considered to potentially form the game's
+-- board.
+type TileDistanceTolerance = Int
 
-minimalTileLength :: Int
-minimalTileLength = 15
+-- | Minimal length at which a group of white pixels is considered to be a
+-- potential tile.
+type MinimalTileLength = Int
 
-emptySpaceTolerance :: Int
-emptySpaceTolerance = 35
+type FindBoardConstants = (TileDistanceTolerance, MinimalTileLength)
 
+-- | Number of horizontal or vertical rows without a black pixel in hint strip
+-- after which the strip is considered to end. Should be large enough to cover
+-- the gap between the first hint and the board.
+type EmptyStripeSpaceTolerance = Int
+
+-- | Tolerances used for determining whether two digts form the same number.
 data NumberTolerances = NT {
-  ntGetMaxNumberWidth :: Int
-  , ntGetMaxInterDigitSpace :: Int
+  ntGetMaxNumberWidth :: Int -- ^ Maximum width of a number
+  , ntGetMaxInterDigitSpace :: Int -- ^ Maximum distance between two digits in
+                                   --   the same number
 }
 
-numberTolerance :: NumberTolerances
-numberTolerance = NT 26 12
+data OCRConstants = OCRConstants {
+  ocrGetEmptyStripeSpaceTolerance :: EmptyStripeSpaceTolerance
+  , ocrNumberTolerances :: NumberTolerances
+}
 
 data PixeloBoard = PixeloBoard {
   pixeloBoardGetRows :: [(Int, Int)]
@@ -68,8 +85,15 @@ pixeloBoardGetFirstColX = fst . head . pixeloBoardGetColumns
 
 -- | Extracts hint information from the screenshot and uses OCR to transform it
 -- into a PixeloGame object
-screenshotToPixeloGame :: (Map m r RGB) => m RGB -> PixeloBoard -> IO PixeloGame
-screenshotToPixeloGame colorMap pixeloBoard =
+screenshotToPixeloGame :: (Map m r RGB) 
+  => OCRConstants 
+  -> m RGB 
+  -> PixeloBoard 
+  -> IO PixeloGame
+screenshotToPixeloGame 
+  (OCRConstants emptyStripeSpaceTolerance numberTolerances)
+  colorMap
+  pixeloBoard =
   do
     rowHints <- sequence (map specPicsToHint rowHintPics)
     colHints <- sequence (map specPicsToHint colHintPics)
@@ -78,12 +102,13 @@ screenshotToPixeloGame colorMap pixeloBoard =
       colHints' = map (\l -> case l of { [] -> [0]; _ -> l; }) colHints
     return $ PixeloGame (emptyGameBoard height width) rowHints' colHints'
   where
-    columnHintsStrips = getColumnHints colorMap pixeloBoard -- :: [[m RGB]]
+    columnHintsStrips = getColumnHints emptyStripeSpaceTolerance colorMap
+      pixeloBoard -- :: [[m RGB]]
     colHintPics = map
       (map (map (trimNonblack . snd) . splitBlackPatchesByColumn))
       columnHintsStrips
-    rowHintPics = map (mergeHints numberTolerance)
-      $ getRowHints colorMap pixeloBoard
+    rowHintPics = map (mergeHints numberTolerances)
+      $ getRowHints emptyStripeSpaceTolerance colorMap pixeloBoard
     (height, width) = (length rowHintPics, length colHintPics)
 
 groupNeighbours :: (a -> a -> Bool) -> [a] -> [[a]]
@@ -112,15 +137,15 @@ groupSimilarRanges tolerance = groupNeighbours
 findWhitePatches :: [(Int, RGB)] -> [(Int, Int)]
 findWhitePatches row =
   let
-    whites = filter (\(_, c) -> c == white) row
+    whites = filter (\(_, c) -> isWhite c) row
     neighbourRanges = neighbourGroupToRanges $ groupNeighbours
       (\(i0, _) (i1, _) -> i1 - i0 == 1)
       whites
   in
     neighbourRanges
 
-getPixeloBoardRow :: [(Int, RGB)] -> Maybe [(Int, Int)]
-getPixeloBoardRow row =
+getPixeloBoardRow :: FindBoardConstants -> [(Int, RGB)] -> Maybe [(Int, Int)]
+getPixeloBoardRow (distanceTolerance, minimalTileLength) row =
   let
     whitePatches = findWhitePatches row
     whitePatchesOfSimilarLength = groupSimilarRanges
@@ -130,16 +155,22 @@ getPixeloBoardRow row =
   in
     safeHead potentialRows
 
-findPixeloBoardRow :: [[(Int, RGB)]] -> Maybe [(Int, Int)]
-findPixeloBoardRow = safeHead . catMaybes . map getPixeloBoardRow
+findPixeloBoardRow :: FindBoardConstants -> [[(Int, RGB)]] -> Maybe [(Int, Int)]
+findPixeloBoardRow constants = safeHead 
+  . catMaybes 
+  . map (getPixeloBoardRow constants)
 
-findPixeloBoard :: Map m r RGB => m RGB -> Maybe PixeloBoard
-findPixeloBoard colorMap = do
+-- | Find white tiles representing pixelo board on screen image.
+findPixeloBoard :: Map m r RGB 
+  => FindBoardConstants 
+  -> m RGB 
+  -> Maybe PixeloBoard
+findPixeloBoard constants colorMap = do
   let (height, width) = mapGetSize colorMap
   let rows = map rowAssocs $ map (\i -> mapGetRow i colorMap) (reverse [0..height])
   let columns = map rowAssocs $ map (\i -> mapGetColumn i colorMap) (reverse [0..width])
-  boardColumn <- findPixeloBoardRow rows
-  boardRow <- findPixeloBoardRow columns
+  boardColumn <- findPixeloBoardRow constants rows
+  boardRow <- findPixeloBoardRow constants columns
   return $ PixeloBoard boardRow boardColumn
 
 splitBlackPatchesByColumn :: (BlackCheckable e, Map m r e)
@@ -241,21 +272,23 @@ trimNonblack bwMap =
         return $ submap ((fR, fC), (lR, lC)) bwMap
 
 getColumnHints :: (BlackCheckable e, Map m r e)
-  => m e
+  => EmptyStripeSpaceTolerance
+  -> m e
   -> PixeloBoard
   -> [[m e]]
-getColumnHints screenshot board =
+getColumnHints tolerance screenshot board =
   map (map trimNonblack . splitBlackPatchesByRow)
-  . map (trimColumnHintsStrip emptySpaceTolerance)
+  . map (trimColumnHintsStrip tolerance)
   $ cutColumnHintsStrips screenshot board
 
 getRowHints :: (BlackCheckable e, Map m r e)
-  => m e
+  => EmptyStripeSpaceTolerance
+  -> m e
   -> PixeloBoard
   -> [[((Int, Int), m e)]]
-getRowHints screenshot board =
+getRowHints tolerance screenshot board =
   map (map (fmap trimNonblack) . splitBlackPatchesByColumn)
-  . map (trimRowHintsStrip emptySpaceTolerance)
+  . map (trimRowHintsStrip tolerance)
   $ cutRowHintsStrips screenshot board
 
 -- | Given dimenstions and images of hints it merges hints that might represent

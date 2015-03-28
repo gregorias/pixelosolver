@@ -42,8 +42,8 @@ Important remarks
 =================
 * The screenshot analysis relies on some constants which I have chosen by hand
   and work my 1920x1080 resolution. On different setups it is likely the a
-  different set of constants will be required. The meaning of constants are
-  described in `PixeloSolver.AI.OCR`
+  different set of constants will be required. The meaning of constants is
+  described in `PixeloSolver.AI.OCR and the constants themself are in the Main.
 * The entire solving algorithm runs in a wx thread which makes the window
   unresponsive for a moment. Normally I would offload the processing to a
   separate thread, but I couldn't find a way to provide wxHaskell's main thread

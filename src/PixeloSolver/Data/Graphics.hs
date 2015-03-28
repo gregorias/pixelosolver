@@ -3,35 +3,30 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module PixeloSolver.Data.Graphics where
+module PixeloSolver.Data.Graphics(
+  RGB
+  , BW
+  , BlackCheckable(..)
+  , WhiteCheckable(..)
+  , Row(..)
+  , Map(..)
+  , UnboxedColorMap(..)
+  , BoxedMap
+  , prettyPrintBWMap
+  , mapToBWMap
+  ) where
 
-import Control.DeepSeq
 import Data.Array.IArray
 import Data.Array.Unboxed(UArray)
 import Data.Word
 
 type RGB = (Word8, Word8, Word8)
 
-getRed :: RGB -> Word8
-getRed (r, _, _) = r
-
-getGreen :: RGB -> Word8
-getGreen (_, g, _) = g
-
-getBlue :: RGB -> Word8
-getBlue (_, _, b) = b
-
 white :: RGB
 white = (255, 255, 255)
 
 black :: RGB
 black = (0, 0, 0)
-
-gridGrey :: RGB
-gridGrey = (188, 188, 188)
-
-gridRed :: RGB
-gridRed = (238, 116, 116)
 
 class Row r e where
   rowGet :: Int -> r e -> e
@@ -70,6 +65,16 @@ instance BlackCheckable BW where
 
 instance BlackCheckable RGB where
   isBlack = (== black)
+
+class WhiteCheckable e where
+  isWhite :: e -> Bool
+
+instance WhiteCheckable BW where
+  isWhite White = True
+  isWhite _ = False
+
+instance WhiteCheckable RGB where
+  isWhite = (== white)
 
 type UnboxedColorMapIx = (Int, Int, Int)
 newtype UnboxedColorRow e = UCR { getUCR :: (UArray (Int, Int) Word8) }
