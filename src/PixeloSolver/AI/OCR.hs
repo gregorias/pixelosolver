@@ -3,26 +3,28 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module PixeloSolver.AI.OCR(
+{- module PixeloSolver.AI.OCR(
   PixeloBoard(..)
   , pixeloBoardGetTileWidth
   , pixeloBoardGetWidth
   , pixeloBoardGetHeight
   , screenshotToPixeloGame
   , findPixeloBoard
-  ) where
+  ) where -}
 
---module PixeloSolver.AI.OCR where
+module PixeloSolver.AI.OCR where
 
 import Control.Applicative
-import Data.Array
+import Control.Monad.Reader
 import Data.List
 import Data.Maybe
+import Text.Parsec() -- in 3.1.3 instance Stream [tok] m tok is here
+import Text.Parsec.Prim hiding (many, (<|>))
+import Text.Parsec.Pos
+import Text.Parsec.Combinator
 
-import PixeloSolver.Data.Array.Extra
 import PixeloSolver.Data.Graphics
 import PixeloSolver.Game.Nonogram
-
 safeHead :: [a] -> Maybe a
 safeHead [] = Nothing
 safeHead (a:_) = Just a
@@ -385,435 +387,263 @@ findLastHintDim getDim tolerance m searchOrder =
 
 -- Number OCR
 
-getBlackGroups :: (Row r BW) => r BW -> [(Int, Int)]
-getBlackGroups = getBlackGroups' . rowAssocs
+type BlackGroups = [(Int, Int)]
+type RowWidth = Int
 
-getBlackGroups' :: [(Int, BW)] -> [(Int, Int)]
-getBlackGroups' bws =
-  map (\bs -> (fst . head $ bs, fst . last $ bs))
-  . filter ((== Black) . snd . head)
-  . groupBy (\(_, c0) (_, c1) -> c0 == c1)
-  $ bws
+type DigitRecognizer = ParsecT [BlackGroups] BlackGroups (Reader RowWidth)
 
-data RecognizeZeroState = RecognizeZeroStart
-  | RecognizeZeroFirstEnd (Int, Int)
-  | RecognizeZeroMiddle (Int, Int) (Int, Int)
-  | RecognizeZeroFinalEnd (Int, Int)
+blackGroupToken :: (BlackGroups -> Bool)
+  -> DigitRecognizer ()
+blackGroupToken predicate = tokenPrim show (\s _ _ -> incSourceColumn s 1)
+  (\t -> if predicate t then return t else fail "")
+  >>= putState
 
-recognizeZero :: BWMap -> Maybe Int
-recognizeZero bwMap =
-  recognizeZero' RecognizeZeroStart (map (\i -> getRow i bwMap) [0..h])
+ellipse :: DigitRecognizer [()]
+ellipse = many1 ellipseBeg >> many1 ellipseMid >> many1 ellipseEnd
+
+ellipseBeg :: DigitRecognizer ()
+ellipseBeg = do
+  s <- getState
+  width <- ask
+  case s of 
+    [] -> blackGroupToken (coveringMiddle width)
+    [(xBeg, xEnd)] -> blackGroupToken 
+      ((&&) <$> coveringMiddle width <*> predicate)
+      where 
+        predicate [(xBeg', xEnd')] = xBeg' <= xBeg 
+          && xEnd' >= xEnd
+        predicate _ = False
+    _ -> fail ""
   where
-    h = fst . snd . bounds $ bwMap
+    coveringMiddle width [(xBeg, xEnd)] = xEnd > (width `div` 2)
+      && xBeg < (width `div` 2)
+    coveringMiddle _ _ = False
 
-recognizeZero' :: (Row r BW) => RecognizeZeroState -> [r BW] -> Maybe Int
-recognizeZero' (RecognizeZeroFinalEnd _) [] = return 0
+ellipseMid :: DigitRecognizer ()
+ellipseMid = do
+  s <- getState
+  case s of 
+    [(xBeg, xEnd)] -> blackGroupToken predicate
+      where 
+        predicate [(x0Beg, _), (_, x1End)] = x0Beg <= xBeg 
+          && x1End >= xEnd
+        predicate _ = False
+    [_, _] -> blackGroupToken ((== 2) . length)
+    _ -> fail ""
 
-recognizeZero' _ [] = Nothing
-recognizeZero' RecognizeZeroStart (r : rs) =
-  case blackGroups of
-    [b] ->
-      if (fst b < middleW) && (snd b > middleW)
-      then recognizeZero' (RecognizeZeroFirstEnd b) rs
-      else Nothing
-    _ -> Nothing
+ellipseEnd :: DigitRecognizer ()
+ellipseEnd = do
+  s <- getState
+  width <- ask
+  case s of 
+    [(x0Beg, _), (_, x1End)] -> blackGroupToken 
+      ((&&) <$> coveringMiddle width <*> predicate)
+      where 
+        predicate [(xBeg, xEnd)] = xBeg >= x0Beg && xEnd <= x1End
+        predicate _ = False
+    [(xBeg, xEnd)] -> blackGroupToken
+      ((&&) <$> coveringMiddle width <*> predicate)
+      where 
+        predicate [(xBeg', xEnd')] = xBeg' >= xBeg 
+          && xEnd' <= xEnd
+        predicate _ = False
+    _ -> fail ""
   where
-    blackGroups = getBlackGroups r
-    w = rowGetSize r
-    middleW = w `div` 2
+    coveringMiddle width [(xBeg, xEnd)] = xEnd > (width `div` 2)
+      && xBeg < (width `div` 2)
+    coveringMiddle _ _ = False
 
-recognizeZero' (RecognizeZeroFirstEnd b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) >= (fst b')) && ((snd b) <= (snd b'))
-      then recognizeZero' (RecognizeZeroFirstEnd b') rs
-      else Nothing
-    [b0, b1] ->
-      if ((fst b) >= (fst b0)) && ((snd b) <= (snd b1))
-      then recognizeZero' (RecognizeZeroMiddle b0 b1) rs
-      else Nothing
-    _ -> Nothing
+leftEdge :: DigitRecognizer ()
+leftEdge = blackGroupToken predicate
   where
-    blackGroups = getBlackGroups r
+    predicate [(xBeg, _)] = xBeg == 0
+    predicate _ = False
 
-recognizeZero' (RecognizeZeroMiddle b0 b1) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b0) <= (fst b')) && ((snd b1) >= (snd b'))
-        && (fst b' < middleW) && (snd b' > middleW)
-      then recognizeZero' (RecognizeZeroFinalEnd b') rs
-      else Nothing
-    [b0', b1'] -> recognizeZero' (RecognizeZeroMiddle b0' b1') rs
-    _ -> Nothing
+rightEdge :: DigitRecognizer ()
+rightEdge = do
+  width <- ask
+  blackGroupToken (predicate width)
   where
-    blackGroups = getBlackGroups r
-    w = rowGetSize r
-    middleW = w `div` 2
+    predicate width [(_, xEnd)] = xEnd == width
+    predicate _ _ = False
 
-recognizeZero' (RecognizeZeroFinalEnd b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) <= (fst b')) && ((snd b) >= (snd b'))
-        && (fst b' < middleW) && (snd b' > middleW)
-      then recognizeZero' (RecognizeZeroFinalEnd b') rs
-      else Nothing
-    _ -> Nothing
+coveringBar :: DigitRecognizer ()
+coveringBar = do
+  width <- ask
+  blackGroupToken (predicate width)
   where
-    blackGroups = getBlackGroups r
-    w = rowGetSize r
-    middleW = w `div` 2
+    predicate width [(xBeg, xEnd)] = xBeg == 0 && xEnd == width
+    predicate _ _ = False
 
-recognizeOne :: BWMap -> Maybe Int
-recognizeOne bwMap =
-  if all (== Black) (elems bwMap)
-  then Just 1
-  else Nothing
+zero :: DigitRecognizer Int
+zero = ellipse >> eof >> return 0
 
--- recognizeTwo
+one :: DigitRecognizer Int
+one = many1 coveringBar >> eof >> return 1
 
-data RecognizeTwoState = RecognizeTwoStart
-  | RecognizeTwoTop (Int, Int)
-  | RecognizeTwoMiddle (Int, Int)
-  | RecognizeTwoBottom (Int, Int)
+two :: DigitRecognizer Int
+two = many1 ellipseBeg 
+  >> rightEdge 
+  >> twoMiddle 
+  >> many1 coveringBar 
+  >> eof 
+  >> return 2
 
-recognizeTwo :: BWMap -> Maybe Int
-recognizeTwo bwMap =
-  recognizeTwo' RecognizeTwoStart (map (\i -> getRow i bwMap) [0..h])
+twoMiddle :: DigitRecognizer [()]
+twoMiddle = many1 $ do
+  s <- getState
+  case s of
+    [(xBeg, xEnd)] -> blackGroupToken predicate
+      where
+        predicate [(xBeg', xEnd')] = xBeg' <= xBeg && xEnd' <= xEnd
+        predicate _ = False
+    _ -> fail ""
+
+three :: DigitRecognizer Int
+three = threeTwoForks >> threeThreeForks >> threeEnd >> eof >> return 3
+
+threeTwoForks :: DigitRecognizer [()]
+threeTwoForks = many $ blackGroupToken ((== 2) . length)
+
+threeThreeForks :: DigitRecognizer [()]
+threeThreeForks = many1 $ blackGroupToken ((== 3) . length)
+
+threeEnd :: DigitRecognizer [()]
+threeEnd = many1 $ blackGroupToken ((== 1) . length)
+
+four :: DigitRecognizer Int
+four = fourTwoForks >> many1 coveringBar >> fourBottom >> eof >> return 4
+
+fourTwoForks :: DigitRecognizer [()]
+fourTwoForks = many1 $ blackGroupToken predicate
   where
-    h = fst . snd . bounds $ bwMap
+    predicate [(xBeg, _), _] = xBeg == 0
+    predicate _ = False
 
-recognizeTwo' :: (Row r BW) => RecognizeTwoState -> [r BW] -> Maybe Int
-
-recognizeTwo' (RecognizeTwoBottom _) [] = return 2
-recognizeTwo' _ [] = Nothing
-
-recognizeTwo' RecognizeTwoStart (r : rs) =
-  case blackGroups of
-    [b] -> recognizeTwo' (RecognizeTwoTop b) rs
-    _ -> Nothing
+fourBottom :: DigitRecognizer [()]
+fourBottom = many1 $ do 
+  width <- ask
+  blackGroupToken (predicate width)
   where
-    blackGroups = getBlackGroups r
-
-recognizeTwo' (RecognizeTwoTop b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) == (fst b')) && ((snd b) <= (snd b'))
-      then recognizeTwo' (RecognizeTwoTop b') rs
-      else
-        if ((fst b) < (fst b')) && ((snd b) == (snd b'))
-        then recognizeTwo' (RecognizeTwoMiddle b') rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeTwo' (RecognizeTwoMiddle b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) >= (fst b')) && ((snd b) >= (snd b'))
-      then recognizeTwo' (RecognizeTwoMiddle b') rs
-      else
-        if ((fst b) == (fst b')) && ((snd b) <= (snd b'))
-        then recognizeTwo' (RecognizeTwoBottom b') rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeTwo' (RecognizeTwoBottom b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) == (fst b')) && ((snd b) <= (snd b'))
-      then recognizeTwo' (RecognizeTwoBottom b') rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
--- recognizeThree
-
-data RecognizeThreeState = RecognizeThreeStart
-  | RecognizeThreeTwoBounds (Int, Int) (Int, Int)
-  | RecognizeThreeThreeBounds (Int, Int) (Int, Int) (Int, Int)
-  | RecognizeThreeRightEnd (Int, Int)
-
-recognizeThree :: BWMap -> Maybe Int
-recognizeThree bwMap =
-  recognizeThree' RecognizeThreeStart (map (\i -> getColumn i bwMap) [0..w])
-  where
-    w = snd . snd . bounds $ bwMap
-
-recognizeThree' :: (Row r BW) => RecognizeThreeState -> [r BW] -> Maybe Int
-
-recognizeThree' (RecognizeThreeRightEnd _) [] = Just 3
-
-recognizeThree' _ [] = Nothing
-
-recognizeThree' RecognizeThreeStart (r : rs) =
-  case blackGroups of
-    [b0, b1] ->
-      if (fst b0 == 0) && (snd b1 == h)
-      then recognizeThree' (RecognizeThreeTwoBounds b0 b1) rs
-      else Nothing
-    [b0, b1, b2] ->
-        if (fst b0 == 0) && (snd b2 == h)
-        then recognizeThree' (RecognizeThreeThreeBounds b0 b1 b2) rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-    h = rowGetSize r
-
-recognizeThree' (RecognizeThreeTwoBounds b0 b1) (r : rs) =
-  case blackGroups of
-    [b0', b1'] ->
-      if (b0 == b0') && (b1 == b1')
-      then recognizeThree' (RecognizeThreeTwoBounds b0 b1) rs
-      else Nothing
-    [b0', b1', b2'] ->
-      if (b0 == b0') && (b1 == b2')
-      then recognizeThree' (RecognizeThreeThreeBounds b0' b1' b2') rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeThree' (RecognizeThreeThreeBounds b0 b1 b2) (r : rs) =
-  case blackGroups of
-    [b] ->
-      if ((fst b) == (fst b0)) && ((snd b) == (snd b2))
-      then recognizeThree' (RecognizeThreeRightEnd b) rs
-      else Nothing
-    [b0', b1', b2'] ->
-      if (b0 == b0') && (b1 == b1') && (b2 == b2')
-      then recognizeThree' (RecognizeThreeThreeBounds b0' b1' b2') rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeThree' (RecognizeThreeRightEnd b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) <= (fst b')) && ((snd b) >= (snd b'))
-      then recognizeThree' (RecognizeThreeRightEnd b') rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
--- recognizeFour
-
-data RecognizeFourState = RecognizeFourStart
-  | RecognizeFourForks (Int, Int) (Int, Int)
-  | RecognizeFourMiddleLine (Int, Int)
-  | RecognizeFourBase (Int, Int)
-
-recognizeFour :: BWMap -> Maybe Int
-recognizeFour bwMap = recognizeFour' RecognizeFourStart
-  (map (\i -> getRow i bwMap) [0..h])
-  where
-    h = fst . snd . bounds $ bwMap
-
-recognizeFour' :: (Row r BW) => RecognizeFourState -> [r BW] -> Maybe Int
-
-recognizeFour' (RecognizeFourBase _) [] = return 4
-recognizeFour' _ [] = Nothing
-
-recognizeFour' RecognizeFourStart (r : rs) =
-  case blackGroups of
-    [b0, b1] -> recognizeFour' (RecognizeFourForks b0 b1) rs
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeFour' (RecognizeFourForks b0 b1) (r : rs) =
-  case blackGroups of
-    [b] ->
-      if ((fst b) == (fst b0)) && ((snd b) >= (snd b1))
-      then recognizeFour' (RecognizeFourMiddleLine b) rs
-      else Nothing
-    [b0', b1'] ->
-      if (b0 == b0') && (b1 == b1')
-      then recognizeFour' (RecognizeFourForks b0 b1) rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeFour' (RecognizeFourMiddleLine b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if b == b'
-      then recognizeFour' (RecognizeFourMiddleLine b) rs
-      else
-        if ((fst b) < (fst b')) && ((snd b) >= (snd b'))
-        then recognizeFour' (RecognizeFourBase b') rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeFour' (RecognizeFourBase b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if b == b'
-      then recognizeFour' (RecognizeFourBase b) rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
+    predicate width [(xBeg, _)] = xBeg > (width `div` 2)
+    predicate _ _ = False
 
 -- recognizeFive
+five :: DigitRecognizer Int
+five = many1 coveringBar 
+  >> leftEdge 
+  >> fiveMiddle 
+  >> fiveBottom 
+  >> eof 
+  >> return 5
 
-data RecognizeFiveState = RecognizeFiveStart
-  | RecognizeFiveTop (Int, Int)
-  | RecognizeFiveMiddle (Int, Int)
-  | RecognizeFiveBottom (Int, Int)
+fiveMiddle :: DigitRecognizer [()]
+fiveMiddle = many1 $ do
+  s <- getState
+  case s of
+    [(xBeg, xEnd)] -> blackGroupToken predicate
+      where
+        predicate [(xBeg', xEnd')] = xBeg' >= xBeg && xEnd' >= xEnd
+        predicate _ = False
+    _ -> fail ""
 
-recognizeFive :: BWMap -> Maybe Int
-recognizeFive bwMap =
-  recognizeFive' RecognizeFiveStart (map (\i -> getRow i bwMap) [0..h])
-  where
-    h = fst . snd . bounds $ bwMap
+fiveBottom :: DigitRecognizer [()]
+fiveBottom = many1 $ do
+  s <- getState
+  case s of
+    [(_, xEnd)] -> blackGroupToken predicate
+      where
+        predicate [(xBeg', xEnd')] = xBeg' == 0 && xEnd' <= xEnd
+        predicate _ = False
+    _ -> fail ""
 
-recognizeFive' :: (Row r BW) => RecognizeFiveState -> [r BW] -> Maybe Int
+six :: DigitRecognizer Int
+six = many ellipseBeg >> many1 leftEdge >> many1 ellipseMid 
+  >> many1 ellipseEnd 
+  >> eof 
+  >> return 6
 
-recognizeFive' (RecognizeFiveBottom _) [] = return 5
-recognizeFive' _ [] = Nothing
+nine :: DigitRecognizer Int
+nine = ellipse >> many1 rightEdge >> many ellipseEnd >> eof >> return 9
 
-recognizeFive' RecognizeFiveStart (r : rs) =
-  case blackGroups of
-    [b] -> recognizeFive' (RecognizeFiveTop b) rs
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
+seven :: DigitRecognizer Int
+seven = many1 sevenTop >> many1 sevenBottom >> eof >> return 7
 
-recognizeFive' (RecognizeFiveTop b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) >= (fst b')) && ((snd b) == (snd b'))
-      then recognizeFive' (RecognizeFiveTop b') rs
-      else
-        if ((fst b) == (fst b')) && ((snd b) > (snd b'))
-        then recognizeFive' (RecognizeFiveMiddle b') rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
+sevenTop :: DigitRecognizer ()
+sevenTop = do
+  s <- getState
+  case s of
+   [] -> blackGroupToken ((== 1) . length)
+   [(xBeg, _)] -> blackGroupToken predicate
+     where
+       predicate [(xBeg', _)] = xBeg' <= xBeg
+       predicate _ = False
+   _ -> fail ""
 
-recognizeFive' (RecognizeFiveMiddle b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) <= (fst b')) && ((snd b) <= (snd b'))
-      then recognizeFive' (RecognizeFiveMiddle b') rs
-      else
-        if ((fst b) >= (fst b')) && ((snd b) == (snd b'))
-        then recognizeFive' (RecognizeFiveBottom b') rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
+sevenBottom :: DigitRecognizer ()
+sevenBottom = do
+  s <- getState
+  case s of
+   [(xBeg, xEnd)] -> blackGroupToken predicate
+     where
+       predicate [(xBeg', xEnd')] = xBeg' >= xBeg && xEnd' == xEnd
+       predicate _ = False
+   _ -> fail ""
 
-recognizeFive' (RecognizeFiveBottom b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if ((fst b) == (fst b')) && ((snd b) >= (snd b'))
-      then recognizeFive' (RecognizeFiveBottom b') rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
+eight :: DigitRecognizer Int
+eight = ellipse 
+  >> try (many ellipseBeg >> many1 ellipseMid) <|> many1 ellipseMid
+  >> many1 ellipseEnd 
+  >> eof 
+  >> return 8
 
--- | A hack which assumes all other numbers except for 6 and 9 have been
--- recognized
-recognizeSixOrNine :: BWMap -> Maybe Int
-recognizeSixOrNine bwMap =
-  if leftEdgeSize < rightEdgeSize
-  then return 9
-  else return 6
-  where
-    w = snd . snd . bounds $ bwMap
-    leftEdgeSize = length . filter (== Black) . elems . getColumn 0 $ bwMap
-    rightEdgeSize = length . filter (== Black) . elems . getColumn w $ bwMap
-
--- recognizeSeven
-
-data RecognizeSevenState = RecognizeSevenStart
-  | RecognizeSevenTop (Int, Int)
-  | RecognizeSevenBottom (Int, Int)
-
-recognizeSeven :: BWMap -> Maybe Int
-recognizeSeven bwMap =
-  recognizeSeven' RecognizeSevenStart (map (\i -> getRow i bwMap) [0..h])
-  where
-    h = fst . snd . bounds $ bwMap
-
-recognizeSeven' :: (Row r BW) => RecognizeSevenState -> [r BW] -> Maybe Int
-recognizeSeven' (RecognizeSevenBottom _) [] = return 7
-recognizeSeven' _ [] = Nothing
-
-recognizeSeven' RecognizeSevenStart (r : rs) =
-  case blackGroups of
-    [b] -> recognizeSeven' (RecognizeSevenTop b) rs
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeSeven' (RecognizeSevenTop b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if b == b'
-      then recognizeSeven' (RecognizeSevenTop b) rs
-      else
-        if ((fst b) < (fst b'))
-        then recognizeSeven' (RecognizeSevenBottom b') rs
-        else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
-recognizeSeven' (RecognizeSevenBottom b) (r : rs) =
-  case blackGroups of
-    [b'] ->
-      if b == b'
-      then recognizeSeven' (RecognizeSevenBottom b) rs
-      else Nothing
-    _ -> Nothing
-  where
-    blackGroups = getBlackGroups r
-
--- recognizeEight
-
-recognizeEight :: BWMap -> Maybe Int
-recognizeEight bwMap =
-  if (isJust (recognizeZero (submap ((0, 0), (h `div` 2, w)) bwMap)))
-    && (isJust (recognizeZero (submap ((h `div` 2 + 1, 0), (h, w)) bwMap)))
-  then Just 8
-  else Nothing
-  where
-    (h, w) = snd . bounds $ bwMap
-
-recognizeDigitFunctions :: [BWMap -> Maybe Int]
-recognizeDigitFunctions = [
-  recognizeZero,
-  recognizeOne,
-  recognizeTwo,
-  recognizeThree,
-  recognizeFour,
-  recognizeFive,
-  recognizeSeven,
-  recognizeEight,
-  recognizeSixOrNine]
-
-recognizeDigit :: BWMap -> Maybe Int
-recognizeDigit bwMap = safeHead
-  . catMaybes
-  $ recognizeDigitFunctions <*> (pure bwMap)
-
-recognizeNumber :: [BWMap] -> Maybe Int
-recognizeNumber bwMaps =
-  fmap digitsToNumber . sequence . map recognizeDigit $ bwMaps
+-- | Performan an OCR on a list of digits
+recognizeNumber :: (BlackCheckable e, Map m r e) => [m e] -> Maybe Int
+recognizeNumber images =
+  fmap digitsToNumber . sequence
+    . map ((<|>) <$> recognizeDigit <*> splitAndRecognizeDigits)
+    $ images
   where
     digitsToNumber :: [Int] -> Int
     digitsToNumber = foldl (\a b -> 10 * a + b) 0
+  
+-- | Given image of a potential digit perform an OCR to recognize which one is
+-- it.
+recognizeDigit :: (BlackCheckable e, Map m r e) => m e -> Maybe Int
+recognizeDigit bwMap = (run
+    width 
+    (choice . map try $ [zero, one, two, four, five, six, seven, eight, nine])
+    rows)
+  <|> (run height three columns)
+  where 
+    (height, width) = mapGetSize bwMap
+    rows = map (\i -> getBlackGroups . mapGetRow i $ bwMap) [0..height]
+    columns = map (\i -> getBlackGroups . mapGetColumn i $ bwMap) [0..width]
+    run size parser = fromRight . ($ size) . runReader . runPT parser [] "Digit"
+    fromRight (Right t) = return t
+    fromRight (Left _) = fail ""
+
+-- | Sometimes double digit number are have joined digits and are represented by
+-- one picture. This method splits a picture and checks whether its constituents
+-- are digits
+splitAndRecognizeDigits :: (BlackCheckable e, Map m r e) => m e -> Maybe Int
+splitAndRecognizeDigits image = do
+  m <- recognizeDigit left
+  n <- recognizeDigit right
+  return $ m * 10 + n
+  where 
+    (height, width) = mapGetSize image
+    tolerance = 2 -- We need to cut some middle to be sure that the digit does
+                  -- not contain fragments from the other
+    left = submap ((0, 0), (height, width `div` 2 - tolerance)) image
+    right = submap ((0, width `div` 2 + tolerance), (height, width)) image
+
+getBlackGroups :: (BlackCheckable e, Row r e) => r e -> [(Int, Int)]
+getBlackGroups = getBlackGroups' . rowAssocs
+
+getBlackGroups' :: (BlackCheckable e) => [(Int, e)] -> [(Int, Int)]
+getBlackGroups' bws =
+  map (\bs -> (fst . head $ bs, fst . last $ bs))
+  . filter (isBlack . snd . head)
+  . groupBy (\(_, c0) (_, c1) -> isBlack c0 == isBlack c1)
+  $ bws
