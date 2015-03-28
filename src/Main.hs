@@ -1,5 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
-module Main(main) where
+module Main(
+  main
+  , pipelineStatic
+  ) where
 
 import Control.Arrow
 import Control.Concurrent
@@ -105,3 +108,12 @@ run = do
 
 main :: IO ()
 main = showButtonDialog run
+
+-- | Pipeline which solves a game stored in an image and prints the solution to
+-- the console.
+pipelineStatic :: FilePath -> ExceptT String IO ()
+pipelineStatic filePath =
+  lift (getImageFromFile filePath)
+  >>= screenshotToBoardAndGame 
+  >>= ExceptT . return . runExcept . solveGame . snd
+  >>= lift . putStrLn . show

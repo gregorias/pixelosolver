@@ -1,12 +1,10 @@
--- Make definition of constants explicit, especially the interDigitSpace.
---   Add constants to method signature and provide their documentation
 -- Decrease memory footprint
 -- Optimize, especially board finding
---
+
 --ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
 
 -- problem with 410
 
--- Make a screenshot and use it for example
+-- Eliminate bitmap constants from getScreenshot
 
 Add solving gif!

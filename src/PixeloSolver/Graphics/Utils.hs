@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module PixeloSolver.Graphics.Utils(
   getScreenshot
+  , getImageFromFile
   , clickMouseButtonAt
   , showButtonDialog
   ) where
@@ -37,6 +38,17 @@ getScreenshot = do
   WXC.screenDCDelete screenDC
   image <- WXC.imageCreateFromBitmap bitmap
   WXC.memoryDCDelete memoryDC
+  WXC.bitmapDelete bitmap
+  ptr :: WXC.Ptr ()  <- (WXC.imageGetData image)
+  let ptrWord = WXC.ptrCast ptr :: WXC.Ptr Word8
+  colorMap <- ptrToColorMap 1920 1080 ptrWord
+  WXC.imageDestroy image
+  return $! colorMap
+
+getImageFromFile :: FilePath -> IO (UnboxedColorMap e)
+getImageFromFile filePath = do
+  bitmap <- WXC.bitmapCreateFromFile filePath 
+  image <- WXC.imageCreateFromBitmap bitmap
   WXC.bitmapDelete bitmap
   ptr :: WXC.Ptr ()  <- (WXC.imageGetData image)
   let ptrWord = WXC.ptrCast ptr :: WXC.Ptr Word8

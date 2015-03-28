@@ -25,7 +25,7 @@ recommend using a cabal sandbox via:
     cabal configure
     cabal build
 
-You can now find the executable in `dist/build/pixelosolver`.
+You can now find the executable in `dist/build/pixelosolver/`.
 
 Usage
 =====
@@ -38,12 +38,26 @@ game become solved after a moment (less than a few second a modern PC).
 Program checks for groups of white pixels and for example a highscore board is
 sufficient to confuse the computer vision algithm.
 
+Example
+-------
+
+There is an example function which loads an image stored in a file and outputs
+it to the console. This function is called `pipelineStatic` in `Main` and could
+be run with attached example screenshot in `resources/PixeloScreenshot.png`. To
+run it just type:
+
+    cabal repl
+    runExceptT $ pipelineStatic "resources/PixeloScreenshot.png"
+
+You do not need to run the game to see the program working.
+
 Important remarks
 =================
 * The screenshot analysis relies on some constants which I have chosen by hand
   and work my 1920x1080 resolution. On different setups it is likely the a
   different set of constants will be required. The meaning of constants is
   described in `PixeloSolver.AI.OCR and the constants themself are in the Main.
+
 * The entire solving algorithm runs in a wx thread which makes the window
   unresponsive for a moment. Normally I would offload the processing to a
   separate thread, but I couldn't find a way to provide wxHaskell's main thread
