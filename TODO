@@ -1,4 +1,3 @@
--- Decrease memory footprint
 -- Optimize, especially board finding
 
 --ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts

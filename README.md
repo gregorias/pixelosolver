@@ -63,3 +63,10 @@ Important remarks
   separate thread, but I couldn't find a way to provide wxHaskell's main thread
   to run the GUI parts of the processing (taking a screenshot and simulating
   mouse clicks). In wxPython this would be possible with wxEvents.
+
+* On 1920x1080 resolution the program requires less than 1kB of stack, but
+  memory profiling shows that the program uses around 140MB heap space (SYSTEM
+  is the retainer). If I run the program without the GUI it uses around 6MB of
+  heap space (exactly the size of the screenshot at 1920x1080 resolution).
+  Unfortunately I can't decouple the OCR thread from wx Main thread, as
+  described above, so the problem stays until it is solved.
