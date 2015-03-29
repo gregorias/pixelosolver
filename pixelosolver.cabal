@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                pixelosolver
-version:             0.1.0.0
+version:             1.0.0.0
 synopsis:            Tool for automatic recognition, solving and playing of Pixelo flash game.
 -- description:         
 homepage:            http://gregorias.me
@@ -22,7 +22,6 @@ executable pixelosolver
   -- other-extensions:    
   build-depends:       base >= 4.6 && < 4.7
                        , array
-                       , deepseq >= 1.3
                        , gtk
                        , transformers
                        , transformers-compat
@@ -49,10 +48,9 @@ library
   hs-source-dirs:      src
   build-depends:       base >= 4.6 && <4.7
                        , array
-                       , deepseq >= 1.3
+                       , gtk
                        , transformers
                        , transformers-compat
-                       , gtk
                        , mtl
                        , parsec >= 3.1.3
                        , wx >= 0.91

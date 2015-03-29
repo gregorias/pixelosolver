@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Main(
   main
-  , pipelineStatic
+  , runStatic
   ) where
 
 import Control.Arrow
@@ -117,3 +117,10 @@ pipelineStatic filePath =
   >>= screenshotToBoardAndGame 
   >>= ExceptT . return . runExcept . solveGame . snd
   >>= lift . putStrLn . show
+
+runStatic :: FilePath -> IO ()
+runStatic filePath = do
+  eitherResult <- runExceptT $ pipelineStatic filePath
+  case eitherResult of
+    Left err -> putStrLn $ "Error: " ++ err
+    _ -> return ()

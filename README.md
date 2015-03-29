@@ -33,6 +33,9 @@ recommend using a cabal sandbox via:
 
 You can now find the executable in `dist/build/pixelosolver/`.
 
+The application relies on gtk and x11. I recommend installing them from your
+distribution's repository if there are any problems with the process.
+
 Usage
 -----
 
@@ -48,14 +51,15 @@ Example
 -------
 
 There is an example function which loads an image stored in a file and outputs
-it to the console. This function is called `pipelineStatic` in `Main` and could
-be run with attached example screenshot in `resources/PixeloScreenshot.png`. To
-run it just type:
+it to the console. This function is called `runStatic` in `Main` and could be
+run with attached example screenshot in `resources/PixeloScreenshot.png`. To run
+it just type:
 
     cabal repl
-    runExceptT $ pipelineStatic "resources/PixeloScreenshot.png"
+    runStatic "resources/PixeloScreenshot.png"
 
-You do not need to run the game to see the program working.
+With this function you do not need to run the Pixelo game to see the program
+working.
 
 Remarks and ideas for improvement
 ---------------------------------
