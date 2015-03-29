@@ -57,8 +57,8 @@ run it just type:
 
 You do not need to run the game to see the program working.
 
-Remarks
--------
+Remarks and ideas for improvement
+---------------------------------
 * The screenshot analysis relies on some constants which I have chosen by hand
   and work my 1920x1080 resolution. On different setups it is likely the a
   different set of constants will be required. The meaning of constants is
@@ -77,3 +77,14 @@ Remarks
   heap space (exactly the size of the screenshot at 1920x1080 resolution).
   Unfortunately I can't decouple the OCR thread from wx Main thread, as
   described above, so the problem stays until it is solved.
+
+* The application uses constants defining maximum size of a number and distance
+  between digits to determine whether two digits on a hint strip form the same
+  number. The function performing the merging of numbers is not bullet-proof and
+  sometimes fails, for example when we have 4,10 or 2,10 numbers on the
+  strip, since they are all very close. A way to solve this would be to either
+  make the merging hints function take into account 3 next numbers instead of
+  just 2. A more general idea would make the merging function generate all
+  possible solutions and find one that minimizes some metric, for example
+  the sum of squared differences between a distance between middle points of
+  merged numbers and an the ideal distance between middles.
