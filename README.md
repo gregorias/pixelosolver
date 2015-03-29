@@ -1,7 +1,11 @@
-Overview
-========
+# PixeloSolver
 
-This is an application which solves the Pixelo flash game available at
+![example video](doc/ExampleVideo/PixeloVideo.gif)
+
+Overview
+--------
+
+This application solves the Pixelo flash game available at
 [kongregate](http://www.kongregate.com/games/tamaii/pixelo). Solving means:
 
   1. Taking a screenshot
@@ -10,12 +14,13 @@ This is an application which solves the Pixelo flash game available at
   3. Solving the game itself
   4. Clicking through the solution.
 
-The application is written in Haskell and uses some wxHaskell for GUI as well as
-x11 library for simulating mouse clicks. Because of the x11 dependency it may
-not work on Windows. I couldn't find any cross-platform library.
+It is written in Haskell and uses some wxHaskell for GUI as well as x11 library
+for simulating mouse clicks. Because of the x11 dependency it may not work on
+Windows, but it is easy to write functions for it if availability on the Windows
+system is necessary.
 
 Install
-=======
+-------
 
 Run `runhaskell Setup.hs --help` for installation instruction. Alternatively I
 recommend using a cabal sandbox via:
@@ -28,15 +33,15 @@ recommend using a cabal sandbox via:
 You can now find the executable in `dist/build/pixelosolver/`.
 
 Usage
-=====
+-----
 
 Run the pixelogame and pixelosolver. Load up a puzzle you want the program to
 solve. Position the pixelosolver dialog so that the entire board is visible and
-there are no ambigouous white patches around. Click the button and watch the
+there are no ambiguous white patches around. Click the button and watch the
 game become solved after a moment (less than a few second a modern PC).
 
-Program checks for groups of white pixels and for example a highscore board is
-sufficient to confuse the computer vision algithm.
+Program checks for groups of white pixels and for example a high-score board is
+sufficient to confuse the computer vision algorithm.
 
 Example
 -------
@@ -51,12 +56,13 @@ run it just type:
 
 You do not need to run the game to see the program working.
 
-Important remarks
-=================
+Remarks
+-------
 * The screenshot analysis relies on some constants which I have chosen by hand
   and work my 1920x1080 resolution. On different setups it is likely the a
   different set of constants will be required. The meaning of constants is
-  described in `PixeloSolver.AI.OCR and the constants themself are in the Main.
+  described in `PixeloSolver.AI.OCR and the constants themselves are in the
+  Main.
 
 * The entire solving algorithm runs in a wx thread which makes the window
   unresponsive for a moment. Normally I would offload the processing to a

@@ -1,9 +1,5 @@
--- Optimize, especially board finding
-
 --ghc --make Main -package-db=.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d/ -rtsopts
 
 -- problem with 410
 
 -- Eliminate bitmap constants from getScreenshot
-
-Add solving gif!
