@@ -26,7 +26,7 @@ Install
 Run `runhaskell Setup.hs --help` for installation instruction. Alternatively I
 recommend using a cabal sandbox via:
 
-    cabal sandbox --init
+    cabal sandbox init
     cabal install --only-dependencies
     cabal configure
     cabal build

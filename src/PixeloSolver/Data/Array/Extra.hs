@@ -7,23 +7,23 @@ module PixeloSolver.Data.Array.Extra (
 import Data.Array.IArray
 
 getRow :: (IArray a e, Ix i) => i -> a (i, i) e -> a i e
-getRow row map = ixmap (firstRowIdx, lastRowIdx) (\e -> (row, e)) map
+getRow row arr = ixmap (firstRowIdx, lastRowIdx) (\e -> (row, e)) arr
   where
-    firstRowIdx = snd . fst . bounds $ map
-    lastRowIdx = snd . snd . bounds $ map
+    firstRowIdx = snd . fst . bounds $ arr
+    lastRowIdx = snd . snd . bounds $ arr
 
 setRow :: (IArray a e, Ix i) => i -> a i e -> a (i, i) e -> a (i, i) e
 setRow rowIdx row inputMap =
   inputMap // (map (\(x, value) -> ((rowIdx, x), value)) (assocs row))
 
 getColumn :: (IArray a e, Ix i) => i -> a (i, i) e -> a i e
-getColumn column map = ixmap
+getColumn column arr = ixmap
   (firstColumnIdx, lastColumnIdx)
   (\i -> (i, column))
-  map
+  arr
   where
-    firstColumnIdx = fst . fst . bounds $ map
-    lastColumnIdx = fst . snd . bounds $ map
+    firstColumnIdx = fst . fst . bounds $ arr
+    lastColumnIdx = fst . snd . bounds $ arr
 
 setColumn :: (IArray a e, Ix i) => i -> a i e -> a (i, i) e -> a (i, i) e
 setColumn colIdx column inputMap =
