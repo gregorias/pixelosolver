@@ -39,9 +39,10 @@ getScreenshot = do
   image <- WXC.imageCreateFromBitmap bitmap
   WXC.memoryDCDelete memoryDC
   WXC.bitmapDelete bitmap
+  size <- WXC.imageGetSize image
   ptr :: WXC.Ptr ()  <- (WXC.imageGetData image)
   let ptrWord = WXC.ptrCast ptr :: WXC.Ptr Word8
-  colorMap <- ptrToColorMap 1920 1080 ptrWord
+  colorMap <- ptrToColorMap (WXC.sizeW size) (WXC.sizeH size) ptrWord
   WXC.imageDestroy image
   return $! colorMap
 
@@ -50,9 +51,10 @@ getImageFromFile filePath = do
   bitmap <- WXC.bitmapCreateFromFile filePath 
   image <- WXC.imageCreateFromBitmap bitmap
   WXC.bitmapDelete bitmap
+  size <- WXC.imageGetSize image
   ptr :: WXC.Ptr ()  <- (WXC.imageGetData image)
   let ptrWord = WXC.ptrCast ptr :: WXC.Ptr Word8
-  colorMap <- ptrToColorMap 1920 1080 ptrWord
+  colorMap <- ptrToColorMap (WXC.sizeW size) (WXC.sizeH size) ptrWord
   WXC.imageDestroy image
   return $! colorMap
 

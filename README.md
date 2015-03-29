@@ -10,7 +10,8 @@ This application solves the Pixelo flash game available at
 
   1. Taking a screenshot
   2. Analyzing the screenshot to find board and performing OCR to determine hint
-     values
+     values. If a digit can't be recognized the application will output its
+     black and white bitmap and ask for suggestion.
   3. Solving the game itself
   4. Clicking through the solution.
 

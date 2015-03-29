@@ -30,6 +30,8 @@ import Text.Parsec.Combinator
 import PixeloSolver.Data.Graphics
 import PixeloSolver.Game.Nonogram
 
+import System.IO (hFlush, stdout)
+
 safeHead :: [a] -> Maybe a
 safeHead [] = Nothing
 safeHead (a:_) = Just a
@@ -316,6 +318,8 @@ hintPicsToInt digitImages =
     _ -> do
         digits <- mapM (\image -> do
           putStr . prettyPrintBWMap . mapToBWMap $ image
+          putStr "Write number represented by the above bitmap: "
+          hFlush stdout
           num <- getLine
           return $ read num) digitImages
         return $ foldl (\a b -> 10 * a + b) 0 digits
