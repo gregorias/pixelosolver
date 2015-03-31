@@ -16,6 +16,7 @@ module PixeloSolver.AI.OCR(
   , OCRConstants(..)
   , findPixeloBoard
   , screenshotToPixeloGame
+  , screenshotToPixeloGameAuto
   ) where
 
 import Control.Applicative
@@ -86,13 +87,32 @@ pixeloBoardGetFirstColX :: PixeloBoard -> Int
 pixeloBoardGetFirstColX = fst . head . pixeloBoardGetColumns
 
 -- | Extracts hint information from the screenshot and uses OCR to transform it
--- into a PixeloGame object
-screenshotToPixeloGame :: (Map m r RGB) 
-  => OCRConstants 
-  -> m RGB 
-  -> PixeloBoard 
+-- into a PixeloGame object. Uses human suggestion in case a number can't be
+-- recognized.
+screenshotToPixeloGame :: (Map m r RGB)
+  => OCRConstants
+  -> m RGB
+  -> PixeloBoard
   -> IO PixeloGame
-screenshotToPixeloGame 
+screenshotToPixeloGame = screenshotToPixeloGame' specPicsToHintManual
+
+-- | Extracts hint information from the screenshot and uses OCR to transform it
+-- into a PixeloGame object. In case of recognition failure it returns Nothing.
+screenshotToPixeloGameAuto :: (Map m r RGB)
+  => OCRConstants
+  -> m RGB
+  -> PixeloBoard
+  -> Maybe PixeloGame
+screenshotToPixeloGameAuto = screenshotToPixeloGame' specPicsToHintAuto
+
+screenshotToPixeloGame' :: (Map m r RGB, Monad m')
+  => (forall e . (BlackCheckable e, Map m r e) => [[m e]] -> m' [Int])
+  -> OCRConstants
+  -> m RGB
+  -> PixeloBoard
+  -> m' PixeloGame
+screenshotToPixeloGame'
+  specPicsToHint
   (OCRConstants emptyStripeSpaceTolerance numberTolerances)
   colorMap
   pixeloBoard =
@@ -158,14 +178,14 @@ getPixeloBoardRow (distanceTolerance, minimalTileLength) row =
     safeHead potentialRows
 
 findPixeloBoardRow :: FindBoardConstants -> [[(Int, RGB)]] -> Maybe [(Int, Int)]
-findPixeloBoardRow constants = safeHead 
-  . catMaybes 
+findPixeloBoardRow constants = safeHead
+  . catMaybes
   . map (getPixeloBoardRow constants)
 
 -- | Find white tiles representing pixelo board on screen image.
-findPixeloBoard :: Map m r RGB 
-  => FindBoardConstants 
-  -> m RGB 
+findPixeloBoard :: Map m r RGB
+  => FindBoardConstants
+  -> m RGB
   -> Maybe PixeloBoard
 findPixeloBoard constants colorMap = do
   let (height, width) = mapGetSize colorMap
@@ -304,15 +324,15 @@ mergeHints t (x : y : xs) =
   then [snd x, snd y] : mergeHints t xs
   else [snd x] : mergeHints t (y : xs)
   where
-    (yBegFst, yEndFst) = fst $ x
-    (yBegSnd, yEndSnd) = fst $ y
+    (yBegFst, yEndFst) = fst x
+    (yBegSnd, yEndSnd) = fst y
     joinedWidth = yEndSnd - yBegFst
     midDistances = (-)
       ((yBegSnd + yEndSnd) `div` 2)
       ((yBegFst + yEndFst) `div` 2)
 
-hintPicsToInt :: (BlackCheckable e, Map m r e) => [m e] -> IO Int
-hintPicsToInt digitImages =
+hintPicsToIntManual :: (BlackCheckable e, Map m r e) => [m e] -> IO Int
+hintPicsToIntManual digitImages =
   case recognizeNumber digitImages of
     Just num -> return num
     _ -> do
@@ -324,11 +344,18 @@ hintPicsToInt digitImages =
           return $ read num) digitImages
         return $ foldl (\a b -> 10 * a + b) 0 digits
 
-specPicsToHint :: (BlackCheckable e, Map m r e) => [[m e]] -> IO [Int]
-specPicsToHint [] = return []
-specPicsToHint (p : ps) = do
-  spec <- hintPicsToInt p
-  restOfHint <- specPicsToHint ps
+specPicsToHintAuto :: (BlackCheckable e, Map m r e) => [[m e]] -> Maybe [Int]
+specPicsToHintAuto [] = return []
+specPicsToHintAuto (p : ps) = do
+  spec <- recognizeNumber p
+  restOfHint <- specPicsToHintAuto ps
+  return (spec : restOfHint)
+
+specPicsToHintManual :: (BlackCheckable e, Map m r e) => [[m e]] -> IO [Int]
+specPicsToHintManual [] = return []
+specPicsToHintManual (p : ps) = do
+  spec <- hintPicsToIntManual p
+  restOfHint <- specPicsToHintManual ps
   return (spec : restOfHint)
 
 -- TODO Blog Above we have a IO dependence that pipes/conduit solves
@@ -427,12 +454,12 @@ ellipseBeg :: DigitRecognizer ()
 ellipseBeg = do
   s <- getState
   width <- ask
-  case s of 
+  case s of
     [] -> blackGroupToken (coveringMiddle width)
-    [(xBeg, xEnd)] -> blackGroupToken 
+    [(xBeg, xEnd)] -> blackGroupToken
       ((&&) <$> coveringMiddle width <*> predicate)
-      where 
-        predicate [(xBeg', xEnd')] = xBeg' <= xBeg 
+      where
+        predicate [(xBeg', xEnd')] = xBeg' <= xBeg
           && xEnd' >= xEnd
         predicate _ = False
     _ -> fail ""
@@ -444,10 +471,10 @@ ellipseBeg = do
 ellipseMid :: DigitRecognizer ()
 ellipseMid = do
   s <- getState
-  case s of 
+  case s of
     [(xBeg, xEnd)] -> blackGroupToken predicate
-      where 
-        predicate [(x0Beg, _), (_, x1End)] = x0Beg <= xBeg 
+      where
+        predicate [(x0Beg, _), (_, x1End)] = x0Beg <= xBeg
           && x1End >= xEnd
         predicate _ = False
     [_, _] -> blackGroupToken ((== 2) . length)
@@ -457,16 +484,16 @@ ellipseEnd :: DigitRecognizer ()
 ellipseEnd = do
   s <- getState
   width <- ask
-  case s of 
-    [(x0Beg, _), (_, x1End)] -> blackGroupToken 
+  case s of
+    [(x0Beg, _), (_, x1End)] -> blackGroupToken
       ((&&) <$> coveringMiddle width <*> predicate)
-      where 
+      where
         predicate [(xBeg, xEnd)] = xBeg >= x0Beg && xEnd <= x1End
         predicate _ = False
     [(xBeg, xEnd)] -> blackGroupToken
       ((&&) <$> coveringMiddle width <*> predicate)
-      where 
-        predicate [(xBeg', xEnd')] = xBeg' >= xBeg 
+      where
+        predicate [(xBeg', xEnd')] = xBeg' >= xBeg
           && xEnd' <= xEnd
         predicate _ = False
     _ -> fail ""
@@ -501,14 +528,15 @@ zero :: DigitRecognizer Int
 zero = ellipse >> eof >> return 0
 
 one :: DigitRecognizer Int
-one = many1 coveringBar >> eof >> return 1
+one = anyToken >> many1 coveringBar >> eof >> return 1
 
 two :: DigitRecognizer Int
-two = many1 ellipseBeg 
-  >> rightEdge 
-  >> twoMiddle 
-  >> many1 coveringBar 
-  >> eof 
+two = anyToken
+  >> many1 ellipseBeg
+  >> rightEdge
+  >> twoMiddle
+  >> many1 coveringBar
+  >> eof
   >> return 2
 
 twoMiddle :: DigitRecognizer [()]
@@ -543,20 +571,21 @@ fourTwoForks = many1 $ blackGroupToken predicate
     predicate _ = False
 
 fourBottom :: DigitRecognizer [()]
-fourBottom = many1 $ do 
+fourBottom = many1 $ do
   width <- ask
   blackGroupToken (predicate width)
   where
-    predicate width [(xBeg, _)] = xBeg > (width `div` 2)
+    predicate width [(xBeg, _)] = xBeg >= (width `div` 2)
     predicate _ _ = False
 
 -- recognizeFive
 five :: DigitRecognizer Int
-five = many1 coveringBar 
-  >> leftEdge 
-  >> fiveMiddle 
-  >> fiveBottom 
-  >> eof 
+five = anyToken -- Sometimes the first row has spurious pixels
+  >> many1 coveringBar
+  >> leftEdge
+  >> fiveMiddle
+  >> fiveBottom
+  >> eof
   >> return 5
 
 fiveMiddle :: DigitRecognizer [()]
@@ -580,9 +609,9 @@ fiveBottom = many1 $ do
     _ -> fail ""
 
 six :: DigitRecognizer Int
-six = many ellipseBeg >> many1 leftEdge >> many1 ellipseMid 
-  >> many1 ellipseEnd 
-  >> eof 
+six = many ellipseBeg >> many1 leftEdge >> many1 ellipseMid
+  >> many1 ellipseEnd
+  >> eof
   >> return 6
 
 nine :: DigitRecognizer Int
@@ -613,10 +642,10 @@ sevenBottom = do
    _ -> fail ""
 
 eight :: DigitRecognizer Int
-eight = ellipse 
+eight = ellipse
   >> try (many ellipseBeg >> many1 ellipseMid) <|> many1 ellipseMid
-  >> many1 ellipseEnd 
-  >> eof 
+  >> many1 ellipseEnd
+  >> eof
   >> return 8
 
 -- | Performan an OCR on a list of digits
@@ -628,16 +657,16 @@ recognizeNumber images =
   where
     digitsToNumber :: [Int] -> Int
     digitsToNumber = foldl (\a b -> 10 * a + b) 0
-  
+
 -- | Given image of a potential digit perform an OCR to recognize which one is
 -- it.
 recognizeDigit :: (BlackCheckable e, Map m r e) => m e -> Maybe Int
 recognizeDigit bwMap = (run
-    width 
+    width
     (choice . map try $ [zero, one, two, four, five, six, seven, eight, nine])
     rows)
   <|> (run height three columns)
-  where 
+  where
     (height, width) = mapGetSize bwMap
     rows = map (\i -> getBlackGroups . mapGetRow i $ bwMap) [0..height]
     columns = map (\i -> getBlackGroups . mapGetColumn i $ bwMap) [0..width]
@@ -653,7 +682,7 @@ splitAndRecognizeDigits image = do
   m <- recognizeDigit left
   n <- recognizeDigit right
   return $ m * 10 + n
-  where 
+  where
     (height, width) = mapGetSize image
     tolerance = 2 -- We need to cut some middle to be sure that the digit does
                   -- not contain fragments from the other

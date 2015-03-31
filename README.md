@@ -47,8 +47,7 @@ game become solved after a moment (less than a few second a modern PC).
 Program checks for groups of white pixels and for example a high-score board is
 sufficient to confuse the computer vision algorithm.
 
-Example
--------
+### Example
 
 There is an example function which loads an image stored in a file and outputs
 it to the console. This function is called `runStatic` in `Main` and could be
@@ -60,6 +59,31 @@ it just type:
 
 With this function you do not need to run the Pixelo game to see the program
 working.
+
+### Solve sets of puzzles
+
+The Pixelo game groups all puzzles into categories: easy, normal, hard, daily.
+In the Main package there is function called `runSets` which automatically moves
+between puzzles in a set and solves them. This helps in the initial solving run
+as it sufficient to start the function and leave the computer to solve the
+puzzles or to grind XP or gold. The function does not perform any OCR and
+instead relies on the user to provide pixel coordinates of buttons in the menu
+(see documentation inside Main.hs). I recommend running this function in the
+interpreter. On my system an example session looks as follows:
+
+    let xPoss = [675, 780, 904, 1040, 1206] :: [Int]
+    let yPoss = [530, 680, 810] :: [Int]
+    let puzzleMenuPoss = yPoss >>= \y -> xPoss >>= \x -> return (y,x)
+
+    import Control.Concurrent -- for threadDelay
+    import Graphics.UI.Gtk -- for initGUI
+
+    -- | Quickly alt+tab to the browser after running the below line
+    threadDelay 1000000 
+      >> initGUI 
+      >> runSets 3 (930, 1090) puzzleMenuPoss
+        (970, 1100) (310, 1240) (800, 800)
+        2000000 4000000
 
 Remarks and ideas for improvement
 ---------------------------------

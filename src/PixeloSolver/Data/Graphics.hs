@@ -25,8 +25,8 @@ type RGB = (Word8, Word8, Word8)
 white :: RGB
 white = (255, 255, 255)
 
-black :: RGB
-black = (0, 0, 0)
+blackThreshold :: Word8
+blackThreshold = 20
 
 class Row r e where
   rowGet :: Int -> r e -> e
@@ -64,7 +64,7 @@ instance BlackCheckable BW where
   isBlack _ = False
 
 instance BlackCheckable RGB where
-  isBlack = (== black)
+  isBlack (r, g, b) = r == g && g == b && r < blackThreshold
 
 class WhiteCheckable e where
   isWhite :: e -> Bool
