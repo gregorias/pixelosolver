@@ -83,7 +83,7 @@ interpreter. On my system an example session looks as follows:
       >> initGUI 
       >> runSets 3 (930, 1090) puzzleMenuPoss
         (970, 1100) (310, 1240) (800, 800)
-        2000000 4000000
+        1400000 5700000 4000000
 
 Remarks and ideas for improvement
 ---------------------------------

@@ -138,6 +138,7 @@ runSet :: [(Int, Int)] -- ^ (y,x) coordinates of puzzle buttons in the set menu.
   -> (Int, Int) -- ^ Position of the menu button on the puzzle page.
   -> (Int, Int) -- ^ Position of the give up button in the menu
   -> Int -- ^ Delay betwen clicks
+  -> Int -- ^ Delay for the clear screen to load up
   -> Int -- ^ Longer delay for waiting for the summary page to load up
          -- completely
   -> IO ()
@@ -146,6 +147,7 @@ runSet puzzlePositions
   menuPosition
   backPosition
   clickDelay
+  clearDelay
   nextScrenDelay =
   sequence_ $ map singleRun puzzlePositions
   where
@@ -155,7 +157,7 @@ runSet puzzlePositions
       clickMouseButtonAt xPuzzle yPuzzle
       threadDelay clickDelay
       result <- runExceptT pipelineAuto
-      threadDelay clickDelay
+      threadDelay clearDelay
       case result of
         Left errorMsg -> do
           putStrLn errorMsg
@@ -180,6 +182,7 @@ runSets :: Int -- ^ How many times should the runSet function be called
   -> (Int, Int)
   -> Int
   -> Int
+  -> Int
   -> IO ()
 runSets setCount
   nextSetPosition
@@ -188,6 +191,7 @@ runSets setCount
   menuPosition
   backPosition
   clickDelay
+  clearDelay
   nextScrenDelay =
   sequence_
   $ replicate setCount (do
@@ -197,6 +201,7 @@ runSets setCount
         menuPosition
         backPosition
         clickDelay
+        clearDelay
         nextScrenDelay)
       threadDelay clickDelay
       clickMouseButtonAt (snd nextSetPosition) (fst nextSetPosition)
